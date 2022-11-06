@@ -66,7 +66,7 @@ tiExpr ctx (HELetSimple f e1 e2) = do
   unify tf t1
   let ctx'' = Context.remove f ctx'
   s <- getSubst
-  let sch2 = generelize ctx'' $ Subst.apply s tf
+  let sch2 = generalize ctx'' $ Subst.apply s tf
   let ctx''' = Context.add f sch2 ctx''
   tiExpr ctx''' e2
 

@@ -74,26 +74,6 @@ instantiate (Scheme.Forall vars t) = do
   let s = Map.fromList $ zip vars nvars
   return $ Subst.apply s t
 
-generelize :: Context.Context -> HType -> Scheme.Scheme
-generelize ctx t = Scheme.Forall vars t
+generalize :: Context.Context -> HType -> Scheme.Scheme
+generalize ctx t = Scheme.Forall vars t
   where vars = Subst.ftv t List.\\ Subst.ftv ctx
-
--- getCtx :: TI Context.Context
--- getCtx = context <$> get
-
--- findCtx :: String -> TI Scheme.Scheme
--- findCtx i = getCtx >>= Context.find i
-
--- modifyCtx :: (Context.Context -> Context.Context) -> TI ()
--- modifyCtx f = do
---   ctx <- getCtx
---   modify $ \rt -> rt { context = f ctx }
-
--- removeCtx :: String -> TI ()
--- removeCtx i = modifyCtx $ Context.remove i
-
--- addCtx :: String -> Scheme.Scheme -> TI ()
--- addCtx i sch = modifyCtx $ Context.add i sch
-
--- updateCtx :: String -> Scheme.Scheme -> TI ()
--- updateCtx i sch = modifyCtx $ Context.update i sch

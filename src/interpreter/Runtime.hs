@@ -7,8 +7,6 @@ import Data.Maybe (fromJust)
 
 import Ast
 
--- type Scope = Map.Map HId HExpr
-
 newtype HRuntime = HRuntime {
    scopes :: [Scope]
 }
@@ -47,6 +45,3 @@ getVar i =
           e@(Just _)  -> e
           Nothing     -> lookupScopes i scs
   in lookupScopes i <$> getScopes
-
--- lookupScope :: HId -> HRuntime (Maybe HExpr)
--- lookupScope i = Map.lookup i <$> getScope

@@ -1,7 +1,7 @@
 name:                HaskellInterpreter
 version:             0.1.0.0
 github:              "ch3zych3z/HaskellInterpreter"
-license:             Apache2
+license:             Apache-2.0
 author:              "Vyacheslav Buchin"
 maintainer:          "vy.buchin@gmail.com"
 copyright:           "2022 Vyacheslav Buchin"
@@ -67,8 +67,5 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - HaskellInterpreter
-    - test-framework
-    - test-framework-hunit
-    - HUnit
     - tasty
     - tasty-hunit

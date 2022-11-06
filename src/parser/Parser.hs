@@ -22,9 +22,9 @@ allDifferent = pairwiseDifferent . sort
 pairwiseDifferent :: Eq a => [a] -> Bool
 pairwiseDifferent xs = and $ zipWith (/=) xs (drop 1 xs)
 
-foldAbs :: [HId] -> HExpr -> HExpr
-foldAbs [i]      e = HEAbs i e
-foldAbs (i : is) e = HEAbs i $ foldAbs is e
+unfoldAbs :: [HId] -> HExpr -> HExpr
+unfoldAbs [i]      e = HEAbs i e
+unfoldAbs (i : is) e = HEAbs i $ unfoldAbs is e
 
 unique :: [HId] -> Parser [HId]
 unique idents = do
@@ -92,7 +92,7 @@ binding = do
   e <- expr
   return $ case args of
     [] -> Bind i e
-    _  -> Bind i $ foldAbs args e
+    _  -> Bind i $ unfoldAbs args e
 
 
 ifelse :: Parser HExpr
@@ -109,7 +109,7 @@ abstraction = do
   reservedOp "\\"
   idents <- many1 identifier >>= unique
   reservedOp "->"
-  foldAbs idents <$> expr
+  unfoldAbs idents <$> expr
 
 application :: Parser HExpr
 application = do

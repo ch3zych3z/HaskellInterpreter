@@ -20,6 +20,7 @@ Features done:
 4. Run (`stack run filename`)
 
 **NB**
+
 The main function should look like "main = print expr"
 
 Mutual recursion is not allowed in either top-level definitions and let-bindings

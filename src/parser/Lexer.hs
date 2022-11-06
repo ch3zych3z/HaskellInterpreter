@@ -36,4 +36,3 @@ reserved   = Tok.reserved haskell
 reservedOp = Tok.reservedOp haskell
 semi       = Tok.semi haskell
 sym        = Tok.symbol haskell
-
