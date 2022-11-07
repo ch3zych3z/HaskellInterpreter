@@ -1,7 +1,7 @@
 
 
-const x y = x;
+const' x y = x;
 
 f = f;
 
-main = print (const 1 (f 5))
+main = print (const' 1 (f 5))
