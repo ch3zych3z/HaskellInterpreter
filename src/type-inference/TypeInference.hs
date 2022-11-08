@@ -1,14 +1,13 @@
+{-# OPTIONS_GHC -Wno-overlapping-patterns #-}
 module TypeInference (infereType, infereTypeExpr) where
 
 import Control.Monad.Except
-import Debug.Trace (traceM)
-import qualified Data.List as List
 import Prelude hiding (exp)
 
 import TIRuntime
 import qualified Context
 import qualified Subst
-import qualified Scheme
+import qualified Scheme ()
 import Ast
 
 infixr 2 |->
@@ -32,7 +31,7 @@ tiBinOp op | op `elem` [Add, Mul, Sub, Div] = return $ HTInt |-> HTInt |-> HTInt
 
 tiExpr :: Infer HExpr HType
 tiExpr ctx (HEVar _ i)           = Context.find i ctx >>= instantiate
-tiExpr ctx (HEVal v)             = tiHValue v
+tiExpr _   (HEVal v)             = tiHValue v
 tiExpr ctx (HEApp f x)           = do
   tf <- tiExpr ctx f
   tx <- tiExpr ctx x

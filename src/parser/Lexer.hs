@@ -1,10 +1,8 @@
-module Lexer where
+{-# OPTIONS_GHC -Wno-missing-signatures #-}
+module Lexer (module Lexer) where
 
-import Ast
 
-import Text.Parsec.String (Parser)
 import Text.Parsec.Language (haskell)
-import Text.Parsec.Prim (many)
 
 import qualified Text.Parsec.Token as Tok
 

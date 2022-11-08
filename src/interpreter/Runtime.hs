@@ -1,9 +1,8 @@
-module Runtime where
+module Runtime (module Runtime) where
 
 import Control.Monad.Except
 import Control.Monad.State.Lazy
 import qualified Data.Map as Map
-import Data.Maybe (fromJust)
 
 import Ast
 
@@ -38,10 +37,10 @@ pushBindings :: [Binding] -> Runtime ()
 pushBindings = pushScope . binds2Scope
 
 getVar :: HId -> Runtime (Maybe HExpr)
-getVar i = 
+getVar ident = 
   let lookupScopes _ []         = Nothing
       lookupScopes i (sc : scs) =
         case Map.lookup i sc of
           e@(Just _)  -> e
           Nothing     -> lookupScopes i scs
-  in lookupScopes i <$> getScopes
+  in lookupScopes ident <$> getScopes

@@ -1,5 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
-module Context where
+module Context (module Context) where
 
 import Control.Monad.Except
 

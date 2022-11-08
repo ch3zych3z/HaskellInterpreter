@@ -1,5 +1,5 @@
 {-# LANGUAGE FlexibleContexts, LambdaCase #-}
-module Subst where
+module Subst (module Subst) where
 
 import qualified Data.Map as Map
 import qualified Data.List as List

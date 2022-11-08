@@ -1,4 +1,4 @@
-module Scheme where
+module Scheme (module Scheme) where
 
 import qualified Data.Map as Map
 import qualified Data.List as List

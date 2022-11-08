@@ -1,4 +1,4 @@
-module Exception where
+module Exception (module Exception) where
 
 import Control.Monad.Except
 

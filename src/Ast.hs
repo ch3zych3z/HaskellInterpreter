@@ -1,4 +1,4 @@
-module Ast where
+module Ast (module Ast) where
 
 import qualified Data.Map as Map
 import qualified Text.PrettyPrint as PP
@@ -31,13 +31,6 @@ data HBinOp =
   | Leq
   deriving (Eq, Show)
 
-data HPattern =
-    HPIdent HId
-  | HPLabel HId HPattern
-  | HPVal HValue
-  | HPWildcard
-  deriving (Eq, Show)
-
 data Binding = Bind HId HExpr deriving (Eq, Show)
 
 type Scope = Map.Map HId HExpr
@@ -56,6 +49,36 @@ data HExpr =
 data Bindings = Binds [Binding] HExpr deriving (Eq, Show)
 
 type HProgram = Bindings
+
+-- Patterns
+
+class Matchable a where
+  matches :: a -> HExpr -> Bool
+
+data HValuePat = 
+    HVPInt Int
+  | HVPBool Bool
+  deriving (Eq, Show)
+
+instance Matchable HValuePat where
+  matches (HVPInt v1)  (HEVal (HVInt v2))  = v1 == v2
+  matches (HVPBool v1) (HEVal (HVBool v2)) = v1 == v2
+  matches _            _                   = False
+
+data HPattern =
+    HPIdent HId
+  | HPLabel HId HPattern
+  | HPVal HValuePat
+  | HPWildcard
+  deriving (Eq, Show)
+
+instance Matchable HPattern where
+  matches (HPIdent _)   _ = True
+  matches (HPLabel _ p) e = matches p e
+  matches HPWildcard    _ = True
+  matches (HPVal p)     e = matches p e
+
+-- Pretty printers
 
 instance Show HType where 
   showsPrec _ x = shows (prType x)

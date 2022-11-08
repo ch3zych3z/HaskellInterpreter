@@ -1,8 +1,9 @@
 {-# LANGUAGE LambdaCase #-}
-module Interpreter where
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+module Interpreter (interpret) where
 
 import qualified Data.Map as Map
-
+import Prelude hiding (exp)
 import qualified Data.List as List
 import Data.Maybe (fromMaybe, isJust)
 import Debug.Trace
@@ -37,6 +38,7 @@ subst l@(HELet (Binds bs e1)) i e2 | bindsContains bs i = l
                                    | otherwise          = HELet $ Binds (substBinds bs i e2) $ subst e1 i e2
 subst (HEBinOp e1 op e2)      i e                       = HEBinOp (subst e1 i e) op (subst e2 i e)
 subst (HEIf e1 e2 e3)         i e                       = HEIf (subst e1 i e) (subst e2 i e) (subst e3 i e)
+subst (HELetSimple {})        _ _                       = unreachable
 
 setScopes :: Scope -> HExpr -> HExpr
 setScopes scope v@(HEVar sc n) | Map.member n scope &&
@@ -73,11 +75,35 @@ toOrd = \case
   Leq  -> (<=)
   op   -> incorrectOperationType op "Orders"
 
-reduceVal :: HValue -> HValue
-reduceVal = id
+-- Patterns for laziness
 
-reduceOp :: HBinOp -> HExpr -> HExpr -> Runtime HExpr
-reduceOp op (HEVal v1) (HEVal v2)
+data ExprKind =
+    Value
+  | Abstraction
+
+instance Matchable ExprKind where
+  matches Value   (HEVal _)       = True
+  matches Abstraction (HEAbs _ _) = True
+  matches _           _           = False
+
+-- Interpreter
+
+reduce2kind :: ExprKind -> HExpr -> Runtime HExpr
+reduce2kind k e | matches k e = return e
+                | otherwise   = reduce e >>= reduce2kind k
+
+reduce2val :: HExpr -> Runtime HValue
+reduce2val e = do
+  e' <- reduce2kind Value e
+  case e' of
+    HEVal v -> return v
+    _       -> unreachable
+
+reduce2abs :: HExpr -> Runtime HExpr
+reduce2abs = reduce2kind Abstraction
+
+reduceOp :: HBinOp -> HValue -> HValue -> Runtime HExpr
+reduceOp op v1 v2
   | op `List.elem` [Add, Mul, Sub, Div] = do
     let (HVInt a) = v1
         (HVInt b) = v2
@@ -96,45 +122,46 @@ reduceOp _ _ _                          = trace "reduce op" unreachable
 reduce :: HExpr -> Runtime HExpr
 reduce = \case
   HEApp e1 e2         -> do
-    traceM $ "reducing application:\n" ++ show (HEApp e1 e2)
-    e1' <- reduce e1
-    reduce $ apply e1' e2
-  val@(HEVal _)       -> traceM ("reducing val:\n" ++ show val) >> return val
+    -- traceM $ "reducing application:\n" ++ show (HEApp e1 e2)
+    e1' <- reduce2abs e1
+    return $ apply e1' e2
+  val@(HEVal _)       -> {-traceM ("reducing val:\n" ++ show val) >>-} return val
   v@(HEVar sc i)      -> do
-    traceM ("reducing var:\n" ++ show v)
+    -- traceM ("reducing var:\n" ++ show v)
     pushScope sc
-    e <- getVar i >>= reduce . setScopes sc . fromMaybe v
+    e <- setScopes sc . fromMaybe v <$> getVar i
     -- kek <- fromMaybe v <$> getVar i
     -- traceM $ "unscoped var:\n" ++ show kek
-    traceM $ "scoped var:\n" ++ show e
+    -- traceM $ "scoped var:\n" ++ show e
     popScope
     return e
-  a@(HEAbs _ _)       -> traceM ("reducing abstraction:\n" ++ show a) >> return a
+  a@(HEAbs _ _)       -> {-traceM ("reducing abstraction:\n" ++ show a) >> -}return a
   HELet (Binds bs e)  -> do
-    traceM $ "reducing let:\n" ++ show (Binds bs e)
+    -- traceM $ "reducing let:\n" ++ show (Binds bs e)
     let sc = binds2Scope bs
-    traceM $ "bindings to be closured:\n" ++ show bs
-    traceM $ "closured by\n" ++ show sc
-    reduce $ setScopes sc e
+    -- traceM $ "bindings to be closured:\n" ++ show bs
+    -- traceM $ "closured by\n" ++ show sc
+    return $ setScopes sc e
   HEBinOp e1 op e2    -> do
-    traceM $ "reducing binop:\n" ++ show (HEBinOp e1 op e2)
-    e1' <- reduce e1
-    e2' <- reduce e2
+    -- traceM $ "reducing binop:\n" ++ show (HEBinOp e1 op e2)
+    e1' <- reduce2val e1
+    e2' <- reduce2val e2
     reduceOp op e1' e2'
   HEIf cond e1 e2     -> do
-    traceM $ "reducing if:\n" ++ show (HEIf cond e1 e2)
-    c <- reduce cond
+    -- traceM $ "reducing if:\n" ++ show (HEIf cond e1 e2)
+    c <- reduce2val cond
     case c of
-      (HEVal (HVBool cond')) -> 
+      (HVBool cond') ->
         if cond' then
-          reduce e1
+          return e1
         else
-          reduce e2
+          return e2
       _                      -> trace "if" unreachable
+  HELetSimple {}      -> unreachable 
 
 interpret :: HProgram -> IO ()
-interpret (Binds bs e) = do
+interpret (Binds bs ex) = do
   let scope = Map.fromList $ map (\(Bind i e) -> (i, e)) bs
-  case runRuntime (reduce e) scope of
-    Left err -> putStrLn err
-    Right (HEVal v)  -> print v
+  case runRuntime (reduce2val ex) scope of
+    Left err         -> putStrLn err
+    Right v          -> print v

@@ -1,5 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
-module TIRuntime where
+module TIRuntime (module TIRuntime) where
 
 import Control.Monad.Except
 import Control.Monad.State.Lazy

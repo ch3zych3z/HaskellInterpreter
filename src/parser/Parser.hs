@@ -1,17 +1,13 @@
+{-# OPTIONS_GHC -Wno-missing-signatures #-}
 module Parser (parseExpr, parseProgram) where
 
-import Data.Maybe
 import Text.Parsec
-import Text.Parsec.Char
 import Text.Parsec.String (Parser)
-import Control.Applicative ((<$>))
-import Data.Functor (void)
 import Control.Monad.Except
 import Data.List (sort)
 import qualified Data.Map as Map (empty)
 
 import qualified Text.Parsec.Expr as Ex
-import qualified Text.Parsec.Token as Tok
 
 import Ast
 import Lexer
@@ -25,6 +21,7 @@ pairwiseDifferent xs = and $ zipWith (/=) xs (drop 1 xs)
 unfoldAbs :: [HId] -> HExpr -> HExpr
 unfoldAbs [i]      e = HEAbs i e
 unfoldAbs (i : is) e = HEAbs i $ unfoldAbs is e
+unfoldAbs []       _ = error "unfolding empty list"
 
 unique :: [HId] -> Parser [HId]
 unique idents = do
@@ -35,10 +32,12 @@ program :: Parser HProgram
 program = do
   void spaces
   bs <- semiSep $ try binding
-  let (mn : bsr) = reverse bs
-  case mn of
-    Bind "main" (HEApp (HEVar _ "print") e) -> return $ Binds (reverse bsr) e
-    _                                     -> fail "main function is not detected or it is not last defined function"
+  case reverse bs of
+    (mn : bsr) ->
+      case mn of
+        Bind "main" (HEApp (HEVar _ "print") e) -> return $ Binds (reverse bsr) e
+        _                                     -> fail "main function is not detected or it is not last defined function"
+    _          -> fail "at least one function (main) should be defined"
 
 expr :: Parser HExpr
 expr = Ex.buildExpressionParser table term
