@@ -8,6 +8,7 @@ import qualified Data.List as List
 import Data.Maybe (fromMaybe, isJust)
 import Debug.Trace
 
+import Pattern
 import Ast
 import Runtime
 import qualified Exception
@@ -17,6 +18,17 @@ unreachable = error "error: unreachable code fragment"
 
 incorrectOperationType :: HBinOp -> String -> a
 incorrectOperationType op t = error $ "error: " ++ show op ++ " is not type of " ++ t
+
+-- Pattern matching
+
+reduce2match :: HPattern -> HExpr -> Runtime (Maybe HExpr)
+reduce2match p e | isWHNF e && not (matches p e) = return Nothing
+                 | matches p e                     = return $ Just e
+                 | otherwise                       = do
+                   e' <- reduce e
+                   reduce2match p e'
+
+-- Helpers
 
 bindsContains :: [Binding] -> HId -> Bool
 bindsContains bs i = isJust $ List.find (i ==) $ map (\(Bind n _) -> n) bs
@@ -28,7 +40,7 @@ substBinds bs ident exp =
   in map substBind bs
 
 subst :: HExpr -> HId -> HExpr -> HExpr
-subst ab@(HEAbs n to)         i e  | n == i             = ab
+subst ab@(HEAbs n to)         i e  | i `Pattern.elem` n = ab
                                    | otherwise          = HEAbs n $ subst to i e
 subst v@(HEVar _ n)           i e  | n == i             = e
                                    | otherwise          = v
@@ -38,7 +50,7 @@ subst l@(HELet (Binds bs e1)) i e2 | bindsContains bs i = l
                                    | otherwise          = HELet $ Binds (substBinds bs i e2) $ subst e1 i e2
 subst (HEBinOp e1 op e2)      i e                       = HEBinOp (subst e1 i e) op (subst e2 i e)
 subst (HEIf e1 e2 e3)         i e                       = HEIf (subst e1 i e) (subst e2 i e) (subst e3 i e)
-subst (HELetSimple {})        _ _                       = unreachable
+subst HELetSimple {}          _ _                       = unreachable
 
 setScopes :: Scope -> HExpr -> HExpr
 setScopes scope v@(HEVar sc n) | Map.member n scope &&
@@ -55,8 +67,12 @@ setScopes sc      (HEBinOp e1 op e2)                = HEBinOp (setScopes sc e1) 
 setScopes sc      (HEIf e1 e2 e3)                   = HEIf (setScopes sc e1) (setScopes sc e2) (setScopes sc e3)
 setScopes _       _                                 = unreachable
 
-apply :: HExpr -> HExpr -> HExpr
-apply (HEAbs i to) e = subst to i e
+apply :: HExpr -> HExpr -> Runtime HExpr
+apply (HEAbs p to) e = do
+  matched <- reduce2match p e
+  case matched of
+    Just e' -> return $ Map.foldlWithKey subst to $ match p e'
+    Nothing -> Exception.incompletePM
 apply _ _            = trace "apply" unreachable
 
 toArithm :: HBinOp -> Int -> Int -> Int
@@ -78,13 +94,17 @@ toOrd = \case
 -- Patterns for laziness
 
 data ExprKind =
-    Value
+    WHNF
   | Abstraction
 
 instance Matchable ExprKind where
-  matches Value   (HEVal _)       = True
+  matches WHNF    (HEVal _)       = True
   matches Abstraction (HEAbs _ _) = True
   matches _           _           = False
+  match _ _ = Map.empty
+
+isWHNF :: HExpr -> Bool
+isWHNF = matches WHNF
 
 -- Interpreter
 
@@ -92,9 +112,9 @@ reduce2kind :: ExprKind -> HExpr -> Runtime HExpr
 reduce2kind k e | matches k e = return e
                 | otherwise   = reduce e >>= reduce2kind k
 
-reduce2val :: HExpr -> Runtime HValue
-reduce2val e = do
-  e' <- reduce2kind Value e
+reduce2whnf :: HExpr -> Runtime HValue
+reduce2whnf e = do
+  e' <- reduce2kind WHNF e
   case e' of
     HEVal v -> return v
     _       -> unreachable
@@ -124,7 +144,7 @@ reduce = \case
   HEApp e1 e2         -> do
     -- traceM $ "reducing application:\n" ++ show (HEApp e1 e2)
     e1' <- reduce2abs e1
-    return $ apply e1' e2
+    apply e1' e2
   val@(HEVal _)       -> {-traceM ("reducing val:\n" ++ show val) >>-} return val
   v@(HEVar sc i)      -> do
     -- traceM ("reducing var:\n" ++ show v)
@@ -144,12 +164,12 @@ reduce = \case
     return $ setScopes sc e
   HEBinOp e1 op e2    -> do
     -- traceM $ "reducing binop:\n" ++ show (HEBinOp e1 op e2)
-    e1' <- reduce2val e1
-    e2' <- reduce2val e2
+    e1' <- reduce2whnf e1
+    e2' <- reduce2whnf e2
     reduceOp op e1' e2'
   HEIf cond e1 e2     -> do
     -- traceM $ "reducing if:\n" ++ show (HEIf cond e1 e2)
-    c <- reduce2val cond
+    c <- reduce2whnf cond
     case c of
       (HVBool cond') ->
         if cond' then
@@ -162,6 +182,6 @@ reduce = \case
 interpret :: HProgram -> IO ()
 interpret (Binds bs ex) = do
   let scope = Map.fromList $ map (\(Bind i e) -> (i, e)) bs
-  case runRuntime (reduce2val ex) scope of
+  case runRuntime (reduce2whnf ex) scope of
     Left err         -> putStrLn err
     Right v          -> print v

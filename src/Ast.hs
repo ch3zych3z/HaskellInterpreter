@@ -39,7 +39,7 @@ data HExpr =
     HEVal HValue
   | HEVar Scope HId -- x
   | HEApp HExpr HExpr
-  | HEAbs HId HExpr
+  | HEAbs HPattern HExpr
   | HELet Bindings
   | HELetSimple HId HExpr HExpr
   | HEBinOp HExpr HBinOp HExpr
@@ -52,18 +52,10 @@ type HProgram = Bindings
 
 -- Patterns
 
-class Matchable a where
-  matches :: a -> HExpr -> Bool
-
 data HValuePat = 
     HVPInt Int
   | HVPBool Bool
   deriving (Eq, Show)
-
-instance Matchable HValuePat where
-  matches (HVPInt v1)  (HEVal (HVInt v2))  = v1 == v2
-  matches (HVPBool v1) (HEVal (HVBool v2)) = v1 == v2
-  matches _            _                   = False
 
 data HPattern =
     HPIdent HId
@@ -71,12 +63,6 @@ data HPattern =
   | HPVal HValuePat
   | HPWildcard
   deriving (Eq, Show)
-
-instance Matchable HPattern where
-  matches (HPIdent _)   _ = True
-  matches (HPLabel _ p) e = matches p e
-  matches HPWildcard    _ = True
-  matches (HPVal p)     e = matches p e
 
 -- Pretty printers
 

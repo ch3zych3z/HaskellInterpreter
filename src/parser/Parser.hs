@@ -6,11 +6,13 @@ import Text.Parsec.String (Parser)
 import Control.Monad.Except
 import Data.List (sort)
 import qualified Data.Map as Map (empty)
+import Data.Functor ( ($>) )
 
 import qualified Text.Parsec.Expr as Ex
 
 import Ast
 import Lexer
+import Pattern (collectIdents)
 
 allDifferent :: Ord a => [a] -> Bool
 allDifferent = pairwiseDifferent . sort
@@ -18,15 +20,15 @@ allDifferent = pairwiseDifferent . sort
 pairwiseDifferent :: Eq a => [a] -> Bool
 pairwiseDifferent xs = and $ zipWith (/=) xs (drop 1 xs)
 
-unfoldAbs :: [HId] -> HExpr -> HExpr
+unfoldAbs :: [HPattern] -> HExpr -> HExpr
 unfoldAbs [i]      e = HEAbs i e
 unfoldAbs (i : is) e = HEAbs i $ unfoldAbs is e
 unfoldAbs []       _ = error "unfolding empty list"
 
-unique :: [HId] -> Parser [HId]
-unique idents = do
+unique :: [HPattern] -> Parser ()
+unique pats = do
+  let idents = collectIdents pats
   unless (allDifferent idents) $ fail "conflicting definitions"
-  return idents
 
 program :: Parser HProgram
 program = do
@@ -44,9 +46,9 @@ expr = Ex.buildExpressionParser table term
 
 term :: Parser HExpr
 term = try letIn
-   <|> try application 
-   <|> try abstraction 
-   <|> try ifelse 
+   <|> try application
+   <|> try abstraction
+   <|> try ifelse
    <|> operand
 
 operand :: Parser HExpr
@@ -86,12 +88,14 @@ bindingList = braces $ semiSep binding
 binding :: Parser Binding
 binding = do
   i <- identifier
-  args <- many identifier >>= unique
+  args <- many patternP
+  unique (HPIdent i : args)
   reservedOp "="
   e <- expr
   return $ case args of
     [] -> Bind i e
     _  -> Bind i $ unfoldAbs args e
+
 
 
 ifelse :: Parser HExpr
@@ -106,7 +110,8 @@ ifelse = do
 abstraction :: Parser HExpr
 abstraction = do
   reservedOp "\\"
-  idents <- many1 identifier >>= unique
+  idents <- many1 patternP
+  unique idents
   reservedOp "->"
   unfoldAbs idents <$> expr
 
@@ -115,6 +120,41 @@ application = do
   i          <- var
   app : apps <- sepBy1 operand spaces
   return $ foldl HEApp (HEApp i app) apps
+
+-- patterns
+patternP :: Parser HPattern
+patternP =
+      try (braces patternP)
+  <|> try labelPat
+  <|> try valuePat
+  <|> try identPat
+  <|> try wildcardPat
+
+wildcardPat :: Parser HPattern
+wildcardPat = reserved "_" $> HPWildcard
+
+labelPat :: Parser HPattern
+labelPat = do
+  i <- identifier
+  reservedOp "@"
+  HPLabel i <$> patternP
+
+identPat :: Parser HPattern
+identPat = HPIdent <$> identifier
+
+valuePat :: Parser HPattern
+valuePat = let
+  vpint :: Parser HValuePat
+  vpint = toVPInt <$> integer
+    where
+      toVPInt x = HVPInt $ fromInteger x
+  vpbool :: Parser HValuePat
+  vpbool = (toVP True <$> try (reserved "True")) <|> (toVP False <$> try (reserved "False"))
+    where
+      toVP v = const $ HVPBool v
+  in HPVal <$> (vpint <|> vpbool)
+
+-- values and vars
 
 value :: Parser HExpr
 value = HEVal <$> (vint <|> vbool)
@@ -132,6 +172,8 @@ vbool = (toVTrue <$> try (reserved "True")) <|> (toVFalse <$> try (reserved "Fal
 
 var :: Parser HExpr
 var = HEVar Map.empty <$> identifier
+
+-- main functions
 
 parseExpr :: String -> Either ParseError HExpr
 parseExpr = parse expr ""

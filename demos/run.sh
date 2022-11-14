@@ -1,6 +1,6 @@
 #!/bin/bash 
 
-cd demos
+cd demos || exit 1
 tests=$(find . -type f -name "*.hs")
 stack build
 
@@ -13,8 +13,8 @@ NC='\033[0m'
 
 for test in $tests
 do
-    runhaskell $test > expected
-    stack run $test > actual
+    stack runhaskell "$test" > expected
+    stack run "$test" > actual
     dif=$(diff expected actual)
     if [ $? -eq 0 ] ; then
         echo -e "${GREEN}[Test $test] done${NC}"

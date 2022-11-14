@@ -7,7 +7,7 @@ import Prelude hiding (exp)
 import TIRuntime
 import qualified Context
 import qualified Subst
-import qualified Scheme ()
+import qualified Scheme
 import Ast
 
 infixr 2 |->
@@ -15,6 +15,28 @@ infixr 2 |->
 a |-> b = HTFun a b
 
 type Infer e t = Context.Context -> e -> TI t
+
+tiHVPat :: HValuePat -> TI HType
+tiHVPat (HVPBool _) = return HTBool
+tiHVPat (HVPInt _)  = return HTInt
+
+tiPat :: HPattern -> TI (Context.Context, HType)
+tiPat (HPIdent i) = do
+  t <- newHTVar
+  return (Context.singleton i $ Scheme.empty t, t)
+tiPat HPWildcard = do
+  t <- newHTVar
+  return (Context.empty, t)
+tiPat (HPLabel i p) = do
+  (ctx, t) <- tiPat p
+  return (Context.addEmpty i t ctx, t)
+tiPat (HPVal v) = do
+  t <- tiHVPat v
+  return (Context.empty, t)
+
+tiPats :: [HPattern] -> TI ([Context.Context], [HType])
+tiPats pats = unzip <$> mapM tiPat pats
+
 
 tiHValue :: HValue -> TI HType
 tiHValue (HVInt _)  = return HTInt
@@ -39,10 +61,10 @@ tiExpr ctx (HEApp f x)           = do
   unify tf $ tx |-> t
   return t
 tiExpr ctx (HEAbs x e)           = do
-  tx <- newHTVar
-  let ctx' = Context.updateEmpty x tx ctx
+  (as, t) <- tiPat x
+  let ctx' = Context.concat as ctx
   te <- tiExpr ctx' e
-  return $ tx |-> te
+  return $ t |-> te
 tiExpr ctx (HEBinOp e1 op e2)    = do
   t1 <- tiExpr ctx e1
   t2 <- tiExpr ctx e2
@@ -61,6 +83,8 @@ tiExpr ctx (HELet binds)         = tiBinds ctx binds
 tiExpr ctx (HELetSimple f e1 e2) = do
   tf <- newHTVar
   let ctx' = Context.updateEmpty f tf ctx
+--  (as, tf) <- tiPat f
+--  let ctx' = Context.concat as ctx
   t1 <- tiExpr ctx' e1
   unify tf t1
   let ctx'' = Context.remove f ctx'
