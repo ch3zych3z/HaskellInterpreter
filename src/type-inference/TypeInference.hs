@@ -37,7 +37,6 @@ tiPat (HPVal v) = do
 tiPats :: [HPattern] -> TI ([Context.Context], [HType])
 tiPats pats = unzip <$> mapM tiPat pats
 
-
 tiHValue :: HValue -> TI HType
 tiHValue (HVInt _)  = return HTInt
 tiHValue (HVBool _) = return HTBool
@@ -92,6 +91,25 @@ tiExpr ctx (HELetSimple f e1 e2) = do
   let sch2 = generalize ctx'' $ Subst.apply s tf
   let ctx''' = Context.add f sch2 ctx''
   tiExpr ctx''' e2
+tiExpr ctx (HECase e ms)         = do
+  t <- tiExpr ctx e
+  (pt, rt) <- tiMatching ctx ms
+  unify t pt
+  return rt
+
+tiMatching :: Infer [Matching] (HType, HType)
+tiMatching ctx ms = do
+--  let tiMatch (p :->: e) = do
+--      (as, tp) <- tiPat p
+--      t <- tiExpr (Context.concat as ctx) e
+--      return (tp, t)
+--  (pts, ts) <- mapM tiMatch ms
+  let (ps, exs) = unzip $ map (\(p :->: e) -> (p, e)) ms
+  (ctxs, pts) <- tiPats ps
+  unifyPairwise pts
+  rts <- zipWithM (\ctx' e -> tiExpr (Context.concat ctx' ctx) e) ctxs exs
+  unifyPairwise rts
+  return (head pts, head rts)
 
 tiBinds :: Infer Bindings HType
 tiBinds ctx (Binds bs expr) = do

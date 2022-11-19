@@ -62,6 +62,9 @@ unify t1 t2 = do
   u <- mgu (Subst.apply s t1) (Subst.apply s t2)
   extSubst u
 
+unifyPairwise :: [HType] -> TI ()
+unifyPairwise ts = forM_ (zip ts $ tail ts) $ uncurry unify 
+
 newHTVar :: TI HType
 newHTVar = do
   n <- supply <$> get

@@ -46,6 +46,7 @@ expr = Ex.buildExpressionParser table term
 
 term :: Parser HExpr
 term = try letIn
+   <|> try caseOf
    <|> try application
    <|> try abstraction
    <|> try ifelse
@@ -74,6 +75,21 @@ binary name fun = Ex.Infix ( do { reservedOp name; return fun } )
 binIntOp s op = binary s (`HEBinOp` op) Ex.AssocLeft
 
 compOp s op = binary s (`HEBinOp` op) Ex.AssocNone
+
+caseOf :: Parser HExpr
+caseOf = do
+  reserved "case"
+  e <- expr
+  reserved "of"
+  ms <- braces $ semiSep matching
+  return $ HECase e ms
+
+matching :: Parser Matching
+matching = do
+  p <- patternP
+  reservedOp "->"
+  e <- expr
+  return $ p :->: e
 
 letIn :: Parser HExpr
 letIn = do

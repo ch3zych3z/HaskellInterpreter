@@ -35,6 +35,8 @@ data Binding = Bind HId HExpr deriving (Eq, Show)
 
 type Scope = Map.Map HId HExpr
 
+data Matching = HPattern :->: HExpr deriving (Eq, Show)
+
 data HExpr =
     HEVal HValue
   | HEVar Scope HId -- x
@@ -44,6 +46,7 @@ data HExpr =
   | HELetSimple HId HExpr HExpr
   | HEBinOp HExpr HBinOp HExpr
   | HEIf HExpr HExpr HExpr
+  | HECase HExpr [Matching]
   deriving (Eq, Show)
 
 data Bindings = Binds [Binding] HExpr deriving (Eq, Show)
