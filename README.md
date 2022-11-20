@@ -11,6 +11,8 @@ Features done:
 - "If then else" expressions
 - Type inference
 - "Let in" expressions
+- Pattern matching
+- "Case of" expressions
 
 ### Getting started
 
