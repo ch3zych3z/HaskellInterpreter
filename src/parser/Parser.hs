@@ -53,28 +53,35 @@ term = try letIn
    <|> operand
 
 operand :: Parser HExpr
-operand = parens (try expr) <|> try value <|> try var
+operand = parens (try expr) <|> try value <|> try var <|> try list
 
-table = [ {-[ unIntOp "-" UnMinus,
-            unBoolOp "!" Not]
-        ,-} [ binIntOp "*" Mul,
+table = [ [ binIntOp "*" Mul,
             binIntOp "/" Div]
         , [ binIntOp "+" Add,
             binIntOp "-" Sub]
+        , [ consOp ]
         , [ compOp "==" Eqls,
             compOp ">" Gr,
             compOp "<" Le,
             compOp ">=" Greq,
             compOp "<=" Leq
-            --compOp "!=" Neq
             ]
         ]
 
 binary name fun = Ex.Infix ( do { reservedOp name; return fun } )
 
-binIntOp s op = binary s (`HEBinOp` op) Ex.AssocLeft
+binaryAssoc as s op = binary s (`HEBinOp` op) as
 
-compOp s op = binary s (`HEBinOp` op) Ex.AssocNone
+binIntOp = binaryAssoc Ex.AssocLeft
+
+compOp = binaryAssoc Ex.AssocNone
+
+consOp = binary ":" consExpr Ex.AssocRight
+
+list :: Parser HExpr
+list = do
+  es <- brackets $ commaSep expr
+  return $ foldr consExpr nilExpr es
 
 caseOf :: Parser HExpr
 caseOf = do
@@ -86,7 +93,7 @@ caseOf = do
 
 matching :: Parser Matching
 matching = do
-  p <- patternP
+  p <- pattern
   reservedOp "->"
   e <- expr
   return $ p :->: e
@@ -104,15 +111,13 @@ bindingList = braces $ semiSep binding
 binding :: Parser Binding
 binding = do
   i <- identifier
-  args <- many patternP
+  args <- many $ try pattern
   unique (HPIdent i : args)
   reservedOp "="
   e <- expr
   return $ case args of
     [] -> Bind i e
     _  -> Bind i $ unfoldAbs args e
-
-
 
 ifelse :: Parser HExpr
 ifelse = do
@@ -126,34 +131,54 @@ ifelse = do
 abstraction :: Parser HExpr
 abstraction = do
   reservedOp "\\"
-  idents <- many1 patternP
-  unique idents
+  pats <- many1 $ try pattern
+  unique pats
   reservedOp "->"
-  unfoldAbs idents <$> expr
+  unfoldAbs pats <$> expr
 
 application :: Parser HExpr
-application = do
-  i          <- var
-  app : apps <- sepBy1 operand spaces
-  return $ foldl HEApp (HEApp i app) apps
+application = let
+  app = spaces $> HEApp
+  in chainl1 operand app
 
 -- patterns
-patternP :: Parser HPattern
-patternP =
-      try (braces patternP)
+pattern :: Parser HPattern
+pattern =
+      try listPat
   <|> try labelPat
   <|> try valuePat
   <|> try identPat
   <|> try wildcardPat
+  <|> try (parens pattern)
+
+listPat :: Parser HPattern
+listPat = do
+  let
+    listVal  = do
+      ps <- brackets $ commaSep pattern
+      return $ unfoldCons (HPList HLPNil) ps
+
+    unfoldCons :: HPattern -> [HPattern] -> HPattern
+    unfoldCons = foldr (\h t -> HPList $ HLPCons h t)
+
+    listCons = do
+      ps <- parens $ sepBy1 pattern (reservedOp ":")
+      let (ini, lt) = (init ps, last ps)
+      return $ unfoldCons lt ini
+  try listVal <|> try listCons
 
 wildcardPat :: Parser HPattern
 wildcardPat = reserved "_" $> HPWildcard
 
 labelPat :: Parser HPattern
 labelPat = do
-  i <- identifier
-  reservedOp "@"
-  HPLabel i <$> patternP
+  let 
+    lbl = do
+      i <- identifier
+      reservedOp "@"
+      return i
+  ls <- many1 $ try lbl
+  HPLabel ls <$> pattern
 
 identPat :: Parser HPattern
 identPat = HPIdent <$> identifier

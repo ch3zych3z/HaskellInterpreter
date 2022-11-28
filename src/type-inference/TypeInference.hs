@@ -27,20 +27,40 @@ tiPat (HPIdent i) = do
 tiPat HPWildcard = do
   t <- newHTVar
   return (Context.empty, t)
-tiPat (HPLabel i p) = do
+tiPat (HPLabel is p) = do
   (ctx, t) <- tiPat p
-  return (Context.addEmpty i t ctx, t)
+  let ctx' = foldr (`Context.addEmpty` t) ctx is
+  return (ctx', t)
 tiPat (HPVal v) = do
   t <- tiHVPat v
   return (Context.empty, t)
+tiPat (HPList p) =
+  case p of
+    HLPNil        -> do
+      t <- newHTVar
+      return (Context.empty, HTList t)
+    HLPCons hp tp -> do
+--      (ctxs, ts) <- unzip <$> mapM tiPat p
+--      let ctx = foldl1 Context.concat ctxs
+--      unifyPairwise ts
+--      return (ctx, HTList $ head ts)
+      (hctx, ht) <- tiPat hp
+      (tctx, tt) <- tiPat tp
+      unify tt $ HTList ht
+      return (Context.concat hctx tctx, tt)
+tiPat (HPTuple s ps) = do
+  (ctxs, ts) <- unzip <$> mapM tiPat ps
+  let ctx = foldl1 Context.concat ctxs
+  unifyPairwise ts
+  return (ctx, HTTuple s ts)
 
 tiPats :: [HPattern] -> TI ([Context.Context], [HType])
 tiPats pats = unzip <$> mapM tiPat pats
 
 tiHValue :: HValue -> TI HType
-tiHValue (HVInt _)  = return HTInt
-tiHValue (HVBool _) = return HTBool
-tiHValue v          = throwError $ "unknown value: " ++ show v
+tiHValue (HVInt _)   = return HTInt
+tiHValue (HVBool _)  = return HTBool
+tiHValue v           = throwError $ "unknown value: " ++ show v
 
 tiBinOp :: HBinOp -> TI HType
 tiBinOp op | op `elem` [Add, Mul, Sub, Div] = return $ HTInt |-> HTInt |-> HTInt
@@ -49,6 +69,17 @@ tiBinOp op | op `elem` [Add, Mul, Sub, Div] = return $ HTInt |-> HTInt |-> HTInt
                t <- newHTVar 
                return $ t |-> t |-> HTBool
            | otherwise                      = throwError $ "unknown operator: " ++ show op 
+
+tiTC :: Infer HTypeCons HType
+tiTC ctx (HCTuple s es)        = do
+  ts <- mapM (tiExpr ctx) es
+  return $ HTTuple s ts
+tiTC _ (HCList HLNil)          = HTList <$> newHTVar
+tiTC ctx (HCList (HLCons h t)) = do
+  th   <- tiExpr ctx h
+  tt   <- tiExpr ctx t
+  unify tt $ HTList th
+  return tt
 
 tiExpr :: Infer HExpr HType
 tiExpr ctx (HEVar _ i)           = Context.find i ctx >>= instantiate
@@ -82,8 +113,6 @@ tiExpr ctx (HELet binds)         = tiBinds ctx binds
 tiExpr ctx (HELetSimple f e1 e2) = do
   tf <- newHTVar
   let ctx' = Context.updateEmpty f tf ctx
---  (as, tf) <- tiPat f
---  let ctx' = Context.concat as ctx
   t1 <- tiExpr ctx' e1
   unify tf t1
   let ctx'' = Context.remove f ctx'
@@ -96,14 +125,10 @@ tiExpr ctx (HECase e ms)         = do
   (pt, rt) <- tiMatching ctx ms
   unify t pt
   return rt
+tiExpr ctx (HETypeCons tc)       = tiTC ctx tc
 
 tiMatching :: Infer [Matching] (HType, HType)
 tiMatching ctx ms = do
---  let tiMatch (p :->: e) = do
---      (as, tp) <- tiPat p
---      t <- tiExpr (Context.concat as ctx) e
---      return (tp, t)
---  (pts, ts) <- mapM tiMatch ms
   let (ps, exs) = unzip $ map (\(p :->: e) -> (p, e)) ms
   (ctxs, pts) <- tiPats ps
   unifyPairwise pts

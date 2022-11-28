@@ -13,6 +13,7 @@ Features done:
 - "Let in" expressions
 - Pattern matching
 - "Case of" expressions
+- Lists
 
 ### Getting started
 

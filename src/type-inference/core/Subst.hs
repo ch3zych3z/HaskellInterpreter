@@ -23,10 +23,14 @@ instance Types HType where
     HTInt       -> []
     HTBool      -> []
     HTFun t1 t2 -> ftv t1 `List.union` ftv t2
+    HTList t    -> ftv t
     HTVar n     -> [n]
+    HTTuple _ t -> ftv t
   apply s = \case 
     var@(HTVar n) -> Map.findWithDefault var n s
     HTFun t1 t2   -> HTFun (apply s t1) (apply s t2)
+    HTList t      -> HTList $ apply s t
+    HTTuple l t   -> HTTuple l $ map (apply s) t
     t             -> t
 
 empty :: Subst

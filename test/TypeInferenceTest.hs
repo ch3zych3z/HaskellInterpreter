@@ -37,6 +37,9 @@ exprTests =
   , ("\\x -> case x of { True -> False; False -> True }",                       "Bool -> Bool")
   , ("\\f x -> case f of { 0 -> f x; _ -> x }",                                 "types do not unify: a1 -> a1 vs. Int")
   , ("\\x -> case x of { 42 -> True; _ -> 1 }",                                 "types do not unify: Bool vs. Int")
+  , ("\\(x:xs) -> x",                                                           "[a0] -> a0")
+  , ("let { ones = 1 : ones } in ones",                                         "[Int]")
+  , ("let { len xs = case xs of { [] -> 0; (_:t) -> 1 + len t }} in len",       "[a7] -> Int")
   ]
 
 exprs :: TestTree

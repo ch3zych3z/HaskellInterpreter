@@ -1,6 +1,7 @@
 module Ast (module Ast) where
 
 import qualified Data.Map as Map
+import qualified Data.List as List
 import qualified Text.PrettyPrint as PP
 
 type HId = String
@@ -8,6 +9,8 @@ type HId = String
 data HType =
     HTInt
   | HTBool
+  | HTList HType
+  | HTTuple Int [HType]
   | HTFun HType HType
   | HTVar String
   deriving (Eq, Ord)
@@ -31,6 +34,25 @@ data HBinOp =
   | Leq
   deriving (Eq, Show)
 
+data HList =
+    HLNil
+  | HLCons HExpr HExpr
+  deriving (Eq, Show)
+
+data HTypeCons =
+    HCList HList
+  | HCTuple Int [HExpr]
+  deriving (Eq, Show)
+
+listExpr :: HList -> HExpr
+listExpr = HETypeCons . HCList
+
+nilExpr :: HExpr
+nilExpr = listExpr HLNil
+
+consExpr :: HExpr -> HExpr -> HExpr
+consExpr h t = listExpr $ HLCons h t
+
 data Binding = Bind HId HExpr deriving (Eq, Show)
 
 type Scope = Map.Map HId HExpr
@@ -47,6 +69,7 @@ data HExpr =
   | HEBinOp HExpr HBinOp HExpr
   | HEIf HExpr HExpr HExpr
   | HECase HExpr [Matching]
+  | HETypeCons HTypeCons
   deriving (Eq, Show)
 
 data Bindings = Binds [Binding] HExpr deriving (Eq, Show)
@@ -60,23 +83,37 @@ data HValuePat =
   | HVPBool Bool
   deriving (Eq, Show)
 
+data HListPat =
+    HLPNil
+  | HLPCons HPattern HPattern
+  deriving (Eq, Show)
+
 data HPattern =
     HPIdent HId
-  | HPLabel HId HPattern
+  | HPLabel [HId] HPattern
   | HPVal HValuePat
+  | HPList HListPat
+  | HPTuple Int [HPattern]
   | HPWildcard
   deriving (Eq, Show)
 
 -- Pretty printers
 
+data HShow =
+    HSBool Bool
+  | HSInt Int
+  | HSList [HShow]
+
 instance Show HType where 
   showsPrec _ x = shows (prType x)
 
 prType :: HType -> PP.Doc
-prType (HTVar n)   = PP.text n
-prType HTInt       = PP.text "Int"
-prType HTBool      = PP.text "Bool"
-prType (HTFun t s) = prParenType t PP.<+> PP.text "->" PP.<+> prType s
+prType (HTVar n)      = PP.text n
+prType HTInt          = PP.text "Int"
+prType HTBool         = PP.text "Bool"
+prType (HTList t)     = PP.text $ "[" ++ show t ++ "]"
+prType (HTTuple _ ts) = PP.text $ "(" ++ List.intercalate "," (map show ts) ++ ")"
+prType (HTFun t s)    = prParenType t PP.<+> PP.text "->" PP.<+> prType s
 
 prParenType :: HType -> PP.Doc 
 prParenType t = case t of
@@ -86,3 +123,8 @@ prParenType t = case t of
 instance Show HValue where
   show (HVInt v)  = show v
   show (HVBool v) = show v
+
+instance Show HShow where
+  show (HSBool b)  = show b
+  show (HSInt i)   = show i
+  show (HSList xs) = show xs

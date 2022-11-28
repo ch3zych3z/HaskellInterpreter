@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+{-# LANGUAGE TupleSections #-}
 module Interpreter (interpret) where
 
 import qualified Data.Map as Map
@@ -22,14 +23,36 @@ incorrectOperationType op t = error $ "error: " ++ show op ++ " is not type of "
 
 -- Pattern matching
 
-reduce2match :: HPattern -> HExpr -> Runtime (Maybe HExpr)
-reduce2match p e = do
-  case matches p e of
-    Mat -> return $ Just e
-    Unmat -> return Nothing
-    Unknown -> do
-      e' <- reduce e
-      reduce2match p e'
+instance Matchable HValuePat where
+  match (HVPInt v1)  (HEVal (HVInt v2))  | v1 == v2 = return $ Just Map.empty
+  match (HVPBool v1) (HEVal (HVBool v2)) | v1 == v2 = return $ Just Map.empty
+  match _            _                   = return Nothing
+
+instance Matchable HPattern where
+  match HPWildcard      _ = return $ Just Map.empty
+  match (HPIdent i)     e = return $ Just $ Map.singleton i e
+  match (HPLabel is p)  e = do
+    matched <- match p e
+    case matched of
+      Nothing -> return Nothing
+      Just sc -> do
+        return $ Just $ foldr (uncurry Map.insert . (, e)) sc is
+  match (HPVal v)       e = reduce2whnf e >>= match v
+  match (HPList HLPNil)     e = do
+    e' <- reduce2whnf e
+    case e' of
+      HETypeCons (HCList HLNil) -> return $ Just Map.empty
+      _                         -> return Nothing
+  match (HPList (HLPCons hp tp)) e = do
+    e' <- reduce2whnf e
+    case e' of
+      HETypeCons (HCList (HLCons h t)) -> do
+        matchedHead <- match hp h
+        matchedTail <- match tp t
+        case (matchedHead, matchedTail) of
+          (Just sc1, Just sc2) -> return $ Just $ sc1 `Map.union` sc2
+          _                    -> return Nothing
+      _                                -> return Nothing
 
 -- Helpers
 
@@ -61,21 +84,26 @@ subst (HECase to ms)          i e                       =
                                | otherwise  = p :->: subst expr i e
     ms' = map substMatch ms
   in HECase e' ms'
+subst (HETypeCons (HCList l)) i e                       =
+  case l of
+    HLNil      -> nilExpr
+    HLCons h t -> consExpr (subst h i e) (subst t i e)
+subst (HETypeCons (HCTuple s es)) i e                   = HETypeCons $ HCTuple s $ map (\ex -> subst ex i e) es
 
 setScopes :: Scope -> HExpr -> HExpr
 setScopes scope v@(HEVar sc n) | Map.member n scope &&
-                                 Map.null sc        = HEVar scope n
-                               | otherwise          = v
-setScopes _     v@(HEVal _)                         = v
-setScopes sc      (HEApp e1 e2)                     = HEApp (setScopes sc e1) (setScopes sc e2)
-setScopes sc      (HEAbs n e)                       = HEAbs n $ setScopes sc e
-setScopes sc      (HELet (Binds bs e))              =
+                                 Map.null sc           = HEVar scope n
+                               | otherwise             = v
+setScopes _     v@(HEVal _)                            = v
+setScopes sc      (HEApp e1 e2)                        = HEApp (setScopes sc e1) (setScopes sc e2)
+setScopes sc      (HEAbs n e)                          = HEAbs n $ setScopes sc e
+setScopes sc      (HELet (Binds bs e))                 =
   let setScopesBinds = map $ \(Bind i exp) -> Bind i $ setScopes sc' exp
       sc'            = sc Map.\\ binds2Scope bs
   in HELet $ Binds (setScopesBinds bs) $ setScopes sc' e
-setScopes sc      (HEBinOp e1 op e2)                = HEBinOp (setScopes sc e1) op (setScopes sc e2)
-setScopes sc      (HEIf e1 e2 e3)                   = HEIf (setScopes sc e1) (setScopes sc e2) (setScopes sc e3)
-setScopes sc      (HECase e ms)                     =
+setScopes sc      (HEBinOp e1 op e2)                   = HEBinOp (setScopes sc e1) op (setScopes sc e2)
+setScopes sc      (HEIf e1 e2 e3)                      = HEIf (setScopes sc e1) (setScopes sc e2) (setScopes sc e3)
+setScopes sc      (HECase e ms)                        =
   let
     e' = setScopes sc e
     ids p = Pattern.collectIdents [p]
@@ -83,13 +111,16 @@ setScopes sc      (HECase e ms)                     =
     setScopesMatching (p :->: expr) = p :->: setScopes (scope p) expr
     ms' = map setScopesMatching ms
   in HECase e' ms'
-setScopes _       _                                 = unreachable
+setScopes sc      (HETypeCons (HCTuple s es))          = HETypeCons $ HCTuple s $ map (setScopes sc) es
+setScopes _       (HETypeCons (HCList HLNil))          = nilExpr
+setScopes sc      (HETypeCons (HCList (HLCons e1 e2))) = consExpr (setScopes sc e1) (setScopes sc e2)
+setScopes _       _                                    = unreachable
 
 apply :: HExpr -> HExpr -> Runtime HExpr
 apply (HEAbs p to) e = do
-  matched <- reduce2match p e
+  matched <- match p e
   case matched of
-    Just e' -> return $ Map.foldlWithKey subst to $ match p e'
+    Just sc -> return $ Map.foldlWithKey subst to sc
     Nothing -> Exception.incompletePM
 apply _ _            = trace "apply" unreachable
 
@@ -112,9 +143,10 @@ toOrd = \case
 -- Interpreter
 
 isWHNF :: HExpr -> Bool
-isWHNF (HEVal _)   = True
-isWHNF (HEAbs _ _) = True
-isWHNF _           = False
+isWHNF (HEVal _)          = True
+isWHNF (HEAbs _ _)        = True
+isWHNF (HETypeCons _)     = True
+isWHNF _                  = False
 
 reduce2whnf :: HExpr -> Runtime HExpr
 reduce2whnf e | isWHNF e  = return e
@@ -140,34 +172,34 @@ reduceOp _ _ _                          = trace "reduce op" unreachable
 reduce :: HExpr -> Runtime HExpr
 reduce = \case
   HEApp e1 e2         -> do
-    -- traceM $ "reducing application:\n" ++ show (HEApp e1 e2)
+--    traceM $ "reducing application:\n" ++ show (HEApp e1 e2)
     e1' <- reduce2whnf e1
     apply e1' e2
-  val@(HEVal _)       -> {-traceM ("reducing val:\n" ++ show val) >>-} return val
+  val@(HEVal _)       -> traceM ("reducing val:\n" ++ show val) >> return val
   v@(HEVar sc i)      -> do
-    -- traceM ("reducing var:\n" ++ show v)
+--    traceM ("reducing var:\n" ++ show v)
     pushScope sc
     e <- setScopes sc . fromMaybe v <$> getVar i
-    -- kek <- fromMaybe v <$> getVar i
+--     kek <- fromMaybe v <$> getVar i
     -- traceM $ "unscoped var:\n" ++ show kek
     -- traceM $ "scoped var:\n" ++ show e
     popScope
     return e
-  a@(HEAbs _ _)       -> {-traceM ("reducing abstraction:\n" ++ show a) >> -}return a
+  a@(HEAbs _ _)       -> traceM ("reducing abstraction:\n" ++ show a) >> return a
   HELet (Binds bs e)  -> do
-    -- traceM $ "reducing let:\n" ++ show (Binds bs e)
+--    traceM $ "reducing let:\n" ++ show (Binds bs e)
     let sc = binds2Scope bs
     -- traceM $ "bindings to be closured:\n" ++ show bs
     -- traceM $ "closured by\n" ++ show sc
     return $ setScopes sc e
   HEBinOp e1 op e2    -> do
-    -- traceM $ "reducing binop:\n" ++ show (HEBinOp e1 op e2)
+--    traceM $ "reducing binop:\n" ++ show (HEBinOp e1 op e2)
     e1' <- reduce2whnf e1
     e2' <- reduce2whnf e2
     let (HEVal v1, HEVal v2) = (e1', e2')
     reduceOp op v1 v2
   HEIf cond e1 e2     -> do
-    -- traceM $ "reducing if:\n" ++ show (HEIf cond e1 e2)
+--    traceM $ "reducing if:\n" ++ show (HEIf cond e1 e2)
     c <- reduce2whnf cond
     case c of
       (HEVal(HVBool cond')) ->
@@ -179,18 +211,30 @@ reduce = \case
   HELetSimple {}      -> unreachable
   HECase e ms         -> do
     res <- forM ms $ \(p :->: expr) -> do
-      reduced <- reduce2match p e
-      case reduced of
-        Just e' -> return $ Just (match p e', expr)
+      scope <- match p e
+      case scope of
+        Just sc -> return $ Just (sc, expr)
         Nothing -> return Nothing
     case List.find isJust res of
       Just (Just (scope, expr)) -> return $ setScopes scope expr
       _                      -> Exception.incompletePM
+  tc@HETypeCons {}       -> return tc
+
+reduce2show :: HExpr -> Runtime HShow
+reduce2show (HEVal x)                          = case x of
+  HVInt  i -> return $ HSInt  i
+  HVBool b -> return $ HSBool b
+reduce2show (HETypeCons (HCList HLNil))        = return $ HSList []
+reduce2show (HETypeCons (HCList (HLCons h t))) = do
+  hsh <- reduce2show h
+  tsh <- reduce2show t
+  let (HSList tsh') = tsh
+  return $ HSList $ hsh : tsh'
+reduce2show e                                  = reduce2whnf e >>= reduce2show--trace ("reduce2val:\n" ++ show e) unreachable
 
 interpret :: HProgram -> IO ()
 interpret (Binds bs ex) = do
   let scope = Map.fromList $ map (\(Bind i e) -> (i, e)) bs
-  case runRuntime (reduce2whnf ex) scope of
+  case runRuntime (reduce2show ex) scope of
     Left err         -> putStrLn err
-    Right (HEVal v)  -> print v
-    _                -> unreachable
+    Right v          -> print v

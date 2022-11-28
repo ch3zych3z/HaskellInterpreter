@@ -12,34 +12,37 @@ import qualified Context
 import Ast
 
 varBind :: MonadError String m => String -> HType -> m Subst.Subst
-varBind u t | t == HTVar u        = return Subst.empty
+varBind u t | t == HTVar u              = return Subst.empty
             | u `List.elem` Subst.ftv t = throwError $ "occurs check fails: " ++ u ++ " ~ " ++ show t
-            | otherwise           = return $ Map.singleton u t
+            | otherwise                 = return $ Map.singleton u t
 
 mgu :: MonadError String m => HType -> HType -> m Subst.Subst
 mgu (HTFun l r) (HTFun l' r') = do 
   s1 <- mgu l l'
   s2 <- mgu (Subst.apply s1 r) (Subst.apply s1 r')
   return $ s1 `Subst.compose` s2
-mgu (HTVar n) t               = varBind n t
-mgu t (HTVar n)               = varBind n t
-mgu t1 t2 | t1 == t2          = return Subst.empty
-          | otherwise         = throwError $ "types do not unify: " ++ show t1 ++ " vs. " ++ show t2
+mgu (HTVar n) t                                  = varBind n t
+mgu t (HTVar n)                                  = varBind n t
+mgu (HTList t1) (HTList t2)                      = mgu t1 t2
+mgu (HTTuple l1 ts1) (HTTuple l2 ts2) | l1 == l2 = do
+  ss <- zipWithM mgu ts1 ts2
+  return $ foldl1 Subst.compose ss
+mgu t1 t2 | t1 == t2                             = return Subst.empty
+          | otherwise                            = throwError $ "types do not unify: " ++ show t1 ++ " vs. " ++ show t2
 
-match :: MonadError String m => HType -> HType -> m Subst.Subst
-match (HTFun l r) (HTFun l' r') = do
-  sl <- match l l'
-  sr <- match r r'
-  Subst.merge sl sr
-match (HTVar n) t               = varBind n t
-match t1 t2 | t1 == t2          = return Subst.empty
-            | otherwise         = throwError $ "types do not match: " ++ show t1 ++ " vs. " ++ show t2
+--match :: MonadError String m => HType -> HType -> m Subst.Subst
+--match (HTFun l r) (HTFun l' r') = do
+--  sl <- match l l'
+--  sr <- match r r'
+--  Subst.merge sl sr
+--match (HTVar n) t               = varBind n t
+--match t1 t2 | t1 == t2          = return Subst.empty
+--            | otherwise         = throwError $ "types do not match: " ++ show t1 ++ " vs. " ++ show t2
 
 
 data TIRuntime = TIRuntime {
   supply  :: Int
 , subst   :: Subst.Subst
-, context :: Context.Context
 }
 
 type TI a = ExceptT String (State TIRuntime) a
@@ -47,7 +50,7 @@ type TI a = ExceptT String (State TIRuntime) a
 runTI :: TI a -> Either String a
 runTI t = let 
   (res, _) = runState (runExceptT t) initTIState 
-  initTIState = TIRuntime { supply = 0, subst = Subst.empty, context = [] }
+  initTIState = TIRuntime { supply = 0, subst = Subst.empty }
   in res
 
 getSubst :: TI Subst.Subst
