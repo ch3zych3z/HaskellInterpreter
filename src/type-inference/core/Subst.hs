@@ -26,11 +26,13 @@ instance Types HType where
     HTList t    -> ftv t
     HTVar n     -> [n]
     HTTuple _ t -> ftv t
+    HTMaybe t   -> ftv t
   apply s = \case 
     var@(HTVar n) -> Map.findWithDefault var n s
     HTFun t1 t2   -> HTFun (apply s t1) (apply s t2)
     HTList t      -> HTList $ apply s t
     HTTuple l t   -> HTTuple l $ map (apply s) t
+    HTMaybe t     -> HTMaybe $ apply s t
     t             -> t
 
 empty :: Subst

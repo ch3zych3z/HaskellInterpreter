@@ -21,38 +21,43 @@ tiHVPat (HVPBool _) = return HTBool
 tiHVPat (HVPInt _)  = return HTInt
 
 tiPat :: HPattern -> TI (Context.Context, HType)
-tiPat (HPIdent i) = do
+tiPat (HPIdent i)    = do
   t <- newHTVar
   return (Context.singleton i $ Scheme.empty t, t)
-tiPat HPWildcard = do
+tiPat HPWildcard     = do
   t <- newHTVar
   return (Context.empty, t)
 tiPat (HPLabel is p) = do
   (ctx, t) <- tiPat p
   let ctx' = foldr (`Context.addEmpty` t) ctx is
   return (ctx', t)
-tiPat (HPVal v) = do
+tiPat (HPVal v)      = do
   t <- tiHVPat v
   return (Context.empty, t)
-tiPat (HPList p) =
+tiPat (HPList p)     =
   case p of
     HLPNil        -> do
       t <- newHTVar
       return (Context.empty, HTList t)
     HLPCons hp tp -> do
---      (ctxs, ts) <- unzip <$> mapM tiPat p
---      let ctx = foldl1 Context.concat ctxs
---      unifyPairwise ts
---      return (ctx, HTList $ head ts)
       (hctx, ht) <- tiPat hp
       (tctx, tt) <- tiPat tp
       unify tt $ HTList ht
       return (Context.concat hctx tctx, tt)
 tiPat (HPTuple s ps) = do
-  (ctxs, ts) <- unzip <$> mapM tiPat ps
+  (ctxs, ts) <- tiPats ps
   let ctx = foldl1 Context.concat ctxs
-  unifyPairwise ts
   return (ctx, HTTuple s ts)
+tiPat (HPMaybe p)    = do
+  t <- newHTVar
+  case p of
+    Nothing -> return (Context.empty, HTMaybe t)
+    Just p' -> do
+      (ctx, t') <- tiPat p'
+--      traceM $ "pat: " ++ show p'
+--      traceM $ "type: " ++ show t'
+--      traceM $ "return: " ++ show (ctx, HTMaybe t')
+      return (ctx, HTMaybe t')
 
 tiPats :: [HPattern] -> TI ([Context.Context], [HType])
 tiPats pats = unzip <$> mapM tiPat pats
@@ -63,12 +68,12 @@ tiHValue (HVBool _)  = return HTBool
 tiHValue v           = throwError $ "unknown value: " ++ show v
 
 tiBinOp :: HBinOp -> TI HType
-tiBinOp op | op `elem` [Add, Mul, Sub, Div] = return $ HTInt |-> HTInt |-> HTInt
-           | op `elem` [Gr, Le, Leq, Greq]  = return $ HTInt |-> HTInt |-> HTBool
-           | op == Eqls                     = do 
+tiBinOp op | op `elem` [Add, Mul, Sub, Div, Rem] = return $ HTInt |-> HTInt |-> HTInt
+           | op `elem` [Gr, Le, Leq, Greq]       = return $ HTInt |-> HTInt |-> HTBool
+           | op == Eqls                          = do 
                t <- newHTVar 
                return $ t |-> t |-> HTBool
-           | otherwise                      = throwError $ "unknown operator: " ++ show op 
+           | otherwise                           = throwError $ "unknown operator: " ++ show op 
 
 tiTC :: Infer HTypeCons HType
 tiTC ctx (HCTuple s es)        = do
@@ -80,6 +85,8 @@ tiTC ctx (HCList (HLCons h t)) = do
   tt   <- tiExpr ctx t
   unify tt $ HTList th
   return tt
+tiTC _ (HCMaybe Nothing)       = HTMaybe <$> newHTVar
+tiTC ctx (HCMaybe (Just e))    = HTMaybe <$> tiExpr ctx e
 
 tiExpr :: Infer HExpr HType
 tiExpr ctx (HEVar _ i)           = Context.find i ctx >>= instantiate
@@ -122,19 +129,20 @@ tiExpr ctx (HELetSimple f e1 e2) = do
   tiExpr ctx''' e2
 tiExpr ctx (HECase e ms)         = do
   t <- tiExpr ctx e
-  (pt, rt) <- tiMatching ctx ms
-  unify t pt
-  return rt
+  (pts, rts) <- tiMatching ctx ms
+  unifyAll (t : pts)
+  unifyAll rts
+  return $ head rts
 tiExpr ctx (HETypeCons tc)       = tiTC ctx tc
 
-tiMatching :: Infer [Matching] (HType, HType)
+tiMatching :: Infer [Matching] ([HType], [HType])
 tiMatching ctx ms = do
   let (ps, exs) = unzip $ map (\(p :->: e) -> (p, e)) ms
   (ctxs, pts) <- tiPats ps
-  unifyPairwise pts
+--  unifyPairwise pts
   rts <- zipWithM (\ctx' e -> tiExpr (Context.concat ctx' ctx) e) ctxs exs
-  unifyPairwise rts
-  return (head pts, head rts)
+--  unifyPairwise rts
+  return (pts, rts)
 
 tiBinds :: Infer Bindings HType
 tiBinds ctx (Binds bs expr) = do

@@ -35,11 +35,15 @@ exprTests =
   , ("let { s f g x = f x (g x) } in s",                                        "(a7 -> a8 -> a9) -> (a7 -> a8) -> a7 -> a9")
   , ("let { id x = x; f x = id (x + 1); g x = id (x == True) } in id",          "a13 -> a13")
   , ("\\x -> case x of { True -> False; False -> True }",                       "Bool -> Bool")
-  , ("\\f x -> case f of { 0 -> f x; _ -> x }",                                 "types do not unify: a1 -> a1 vs. Int")
+  , ("\\f x -> case f of { 0 -> f x; _ -> x }",                                 "types do not unify: a1 -> a3 vs. Int")
   , ("\\x -> case x of { 42 -> True; _ -> 1 }",                                 "types do not unify: Bool vs. Int")
   , ("\\(x:xs) -> x",                                                           "[a0] -> a0")
   , ("let { ones = 1 : ones } in ones",                                         "[Int]")
   , ("let { len xs = case xs of { [] -> 0; (_:t) -> 1 + len t }} in len",       "[a7] -> Int")
+  , ("\\(x, y) -> x + y",                                                       "(Int,Int) -> Int")
+  , ("\\(x, y) -> (y, [x, x])",                                                 "(a0,a1) -> (a1,[a0])")
+  , ("\\x y -> case (x, y) of { (Just 1, Nothing) -> x; _ -> y }",              "(Maybe Int) -> (Maybe Int) -> Maybe Int")
+  , ("let { head l = case l of { [] -> Nothing; (x:_) -> Just x} } in head",    "[a6] -> Maybe a6")
   ]
 
 exprs :: TestTree

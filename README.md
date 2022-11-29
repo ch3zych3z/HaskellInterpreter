@@ -13,7 +13,7 @@ Features done:
 - "Let in" expressions
 - Pattern matching
 - "Case of" expressions
-- Lists
+- Types: Int, Bool, List, Tuple, Maybe
 
 ### Getting started
 

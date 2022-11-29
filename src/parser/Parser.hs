@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -Wno-missing-signatures #-}
-module Parser (parseExpr, parseProgram) where
+module Parser (parseExpr, parseProgram, parsePrelude) where
 
+import Prelude hiding (maybe)
 import Text.Parsec
 import Text.Parsec.String (Parser)
 import Control.Monad.Except
@@ -46,6 +47,7 @@ expr = Ex.buildExpressionParser table term
 
 term :: Parser HExpr
 term = try letIn
+   <|> try just
    <|> try caseOf
    <|> try application
    <|> try abstraction
@@ -53,10 +55,17 @@ term = try letIn
    <|> operand
 
 operand :: Parser HExpr
-operand = parens (try expr) <|> try value <|> try var <|> try list
+operand = 
+      try (parens (try tuple))
+  <|> try nothing
+  <|> try (parens (try expr))
+  <|> try value 
+  <|> try var 
+  <|> try list 
 
 table = [ [ binIntOp "*" Mul,
-            binIntOp "/" Div]
+            binIntOp "/" Div,
+            binIntOp "%" Rem]
         , [ binIntOp "+" Add,
             binIntOp "-" Sub]
         , [ consOp ]
@@ -77,6 +86,22 @@ binIntOp = binaryAssoc Ex.AssocLeft
 compOp = binaryAssoc Ex.AssocNone
 
 consOp = binary ":" consExpr Ex.AssocRight
+
+nothing :: Parser HExpr
+nothing = do
+  reserved "Nothing"
+  return $ HETypeCons $ HCMaybe Nothing
+
+just :: Parser HExpr
+just = do
+  reserved "Just"
+  e <- operand
+  return $ HETypeCons $ HCMaybe $ Just e
+
+tuple :: Parser HExpr
+tuple = let
+  tupleEl = expr <* reservedOp ","
+  in (\ps p -> HETypeCons $ HCTuple (length ps + 1) (ps ++ [p])) <$> (many1 $ try tupleEl) <*> try expr
 
 list :: Parser HExpr
 list = do
@@ -111,7 +136,7 @@ bindingList = braces $ semiSep binding
 binding :: Parser Binding
 binding = do
   i <- identifier
-  args <- many $ try pattern
+  args <- many $ try operandPat
   unique (HPIdent i : args)
   reservedOp "="
   e <- expr
@@ -131,7 +156,7 @@ ifelse = do
 abstraction :: Parser HExpr
 abstraction = do
   reservedOp "\\"
-  pats <- many1 $ try pattern
+  pats <- many1 $ try operandPat
   unique pats
   reservedOp "->"
   unfoldAbs pats <$> expr
@@ -144,12 +169,36 @@ application = let
 -- patterns
 pattern :: Parser HPattern
 pattern =
+      try justPat
+  <|> try operandPat
+
+operandPat :: Parser HPattern
+operandPat =
       try listPat
+  <|> try nothingPat
   <|> try labelPat
   <|> try valuePat
   <|> try identPat
   <|> try wildcardPat
+  <|> try (parens tuplePat)
   <|> try (parens pattern)
+
+nothingPat :: Parser HPattern
+nothingPat = do
+  reserved "Nothing"
+  return $ HPMaybe Nothing
+
+justPat :: Parser HPattern
+justPat = do
+  reserved "Just"
+  p <- operandPat
+  return $ HPMaybe $ Just p
+    
+
+tuplePat :: Parser HPattern
+tuplePat = let 
+  tupleEl = pattern <* reservedOp "," 
+  in (\ps p -> HPTuple (length ps + 1) (ps ++ [p])) <$> (many1 $ try tupleEl) <*> try pattern
 
 listPat :: Parser HPattern
 listPat = do
@@ -172,13 +221,13 @@ wildcardPat = reserved "_" $> HPWildcard
 
 labelPat :: Parser HPattern
 labelPat = do
-  let 
+  let
     lbl = do
       i <- identifier
       reservedOp "@"
       return i
   ls <- many1 $ try lbl
-  HPLabel ls <$> pattern
+  HPLabel ls <$> operandPat
 
 identPat :: Parser HPattern
 identPat = HPIdent <$> identifier
@@ -215,6 +264,13 @@ var :: Parser HExpr
 var = HEVar Map.empty <$> identifier
 
 -- main functions
+
+prelude :: Parser [Binding]
+prelude = semiSep $ try binding
+
+parsePrelude :: String -> HProgram -> HProgram
+parsePrelude s (Binds bs e) = case parse prelude "" s of
+  ~(Right bs') -> Binds (bs' ++ bs) e
 
 parseExpr :: String -> Either ParseError HExpr
 parseExpr = parse expr ""

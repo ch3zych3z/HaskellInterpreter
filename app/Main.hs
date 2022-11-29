@@ -16,14 +16,15 @@ main = do
   args     <- getArgs
   case args of 
     fileName:_ -> do
-      code <- readFile fileName
-      -- putStrLn code
+      prelude <- readFile "prelude.hs"
+      code    <- readFile fileName
       case parseProgram code of
         Left err   -> printError "Parse error:" $ show err
-        Right prog ->
-          case infereType prog of
+        Right prog -> do
+          let prog' = parsePrelude prelude prog
+          case infereType prog' of
             Left err -> printError "Type inference error:" err
             Right _  -> do
               -- print prog
-              interpret prog
+              interpret prog'
     [] -> print "Expected filename in args"

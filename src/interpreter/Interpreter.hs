@@ -8,7 +8,7 @@ import Prelude hiding (exp)
 import qualified Data.List as List
 import Data.Maybe (fromMaybe, isJust)
 import Debug.Trace
-import Control.Monad (forM)
+import Control.Monad (forM, zipWithM)
 
 import Pattern
 import Ast
@@ -29,16 +29,16 @@ instance Matchable HValuePat where
   match _            _                   = return Nothing
 
 instance Matchable HPattern where
-  match HPWildcard      _ = return $ Just Map.empty
-  match (HPIdent i)     e = return $ Just $ Map.singleton i e
-  match (HPLabel is p)  e = do
+  match HPWildcard               _ = return $ Just Map.empty
+  match (HPIdent i)              e = return $ Just $ Map.singleton i e
+  match (HPLabel is p)           e = do
     matched <- match p e
     case matched of
       Nothing -> return Nothing
       Just sc -> do
         return $ Just $ foldr (uncurry Map.insert . (, e)) sc is
-  match (HPVal v)       e = reduce2whnf e >>= match v
-  match (HPList HLPNil)     e = do
+  match (HPVal v)                e = reduce2whnf e >>= match v
+  match (HPList HLPNil)          e = do
     e' <- reduce2whnf e
     case e' of
       HETypeCons (HCList HLNil) -> return $ Just Map.empty
@@ -53,6 +53,28 @@ instance Matchable HPattern where
           (Just sc1, Just sc2) -> return $ Just $ sc1 `Map.union` sc2
           _                    -> return Nothing
       _                                -> return Nothing
+  match (HPTuple s ps)           e = do
+    e' <- reduce2whnf e
+    case e' of
+      HETypeCons (HCTuple s' es) ->
+        if s' /= s then return Nothing
+        else do
+          scs <- zipWithM match ps es
+          case sequence scs of
+            Just scs' -> return $ Just $ foldl1 Map.union scs'
+            Nothing   -> return Nothing
+      _                          -> return Nothing
+  match (HPMaybe Nothing)        e = do
+    e' <- reduce2whnf e
+    case e' of
+      HETypeCons (HCMaybe Nothing) -> return $ Just Map.empty
+      _                            -> return Nothing
+  match (HPMaybe (Just p))       e = do
+    e' <- reduce2whnf e
+    case e' of
+      HETypeCons (HCMaybe (Just expr)) -> match p expr
+      _                                -> return Nothing
+          
 
 -- Helpers
 
@@ -89,6 +111,9 @@ subst (HETypeCons (HCList l)) i e                       =
     HLNil      -> nilExpr
     HLCons h t -> consExpr (subst h i e) (subst t i e)
 subst (HETypeCons (HCTuple s es)) i e                   = HETypeCons $ HCTuple s $ map (\ex -> subst ex i e) es
+subst (HETypeCons (HCMaybe m))    i e                   = case m of
+  Just expr -> HETypeCons $ HCMaybe $ Just $ subst expr i e
+  Nothing   -> HETypeCons $ HCMaybe Nothing
 
 setScopes :: Scope -> HExpr -> HExpr
 setScopes scope v@(HEVar sc n) | Map.member n scope &&
@@ -114,6 +139,8 @@ setScopes sc      (HECase e ms)                        =
 setScopes sc      (HETypeCons (HCTuple s es))          = HETypeCons $ HCTuple s $ map (setScopes sc) es
 setScopes _       (HETypeCons (HCList HLNil))          = nilExpr
 setScopes sc      (HETypeCons (HCList (HLCons e1 e2))) = consExpr (setScopes sc e1) (setScopes sc e2)
+setScopes _     m@(HETypeCons (HCMaybe Nothing))       = m
+setScopes sc      (HETypeCons (HCMaybe (Just e)))      = HETypeCons $ HCMaybe $ Just $ setScopes sc e
 setScopes _       _                                    = unreachable
 
 apply :: HExpr -> HExpr -> Runtime HExpr
@@ -130,6 +157,7 @@ toArithm = \case
   Mul -> (*)
   Sub -> (-)
   Div -> div
+  Rem -> mod
   op  -> incorrectOperationType op "Arithmetics"
 
 toOrd :: HBinOp -> Int -> Int -> Bool
@@ -152,22 +180,42 @@ reduce2whnf :: HExpr -> Runtime HExpr
 reduce2whnf e | isWHNF e  = return e
               | otherwise = reduce e >>= reduce2whnf
 
-reduceOp :: HBinOp -> HValue -> HValue -> Runtime HExpr
+eqls :: HExpr -> HExpr -> Runtime Bool
+eqls (HETypeCons (HCList (HLCons h1 t1))) (HETypeCons (HCList (HLCons h2 t2))) = do
+  h1' <- reduce2whnf h1
+  h2' <- reduce2whnf h2
+  v1 <- eqls h1' h2'
+  if v1 then do
+    t1' <- reduce2whnf t1
+    t2' <- reduce2whnf t2
+    v2 <- eqls t1' t2'
+    return $ v1 && v2
+  else return False
+eqls (HETypeCons (HCList HLNil)) (HETypeCons (HCList HLNil))                   = return True
+eqls (HEVal v1) (HEVal v2)                                                     = return $ v1 == v2
+eqls (HETypeCons (HCMaybe Nothing)) (HETypeCons (HCMaybe Nothing))             = return True
+eqls (HETypeCons (HCMaybe (Just e1))) (HETypeCons (HCMaybe (Just e2)))         = do
+  e1' <- reduce2whnf e1
+  e2' <- reduce2whnf e2
+  eqls e1' e2'
+eqls (HETypeCons (HCTuple s1 e1s)) (HETypeCons (HCTuple s2 e2s)) | s1 == s2    = and <$> zipWithM eqls e1s e2s
+eqls _ _                                                                       = return False
+
+reduceOp :: HBinOp -> HExpr -> HExpr -> Runtime HExpr
 reduceOp op v1 v2
-  | op `List.elem` [Add, Mul, Sub, Div] = do
-    let (HVInt a) = v1
-        (HVInt b) = v2
-    if b == 0 && op == Div then
+  | op `List.elem` [Add, Mul, Sub, Div, Rem] = do
+    let (HEVal (HVInt a)) = v1
+        (HEVal (HVInt b)) = v2
+    if b == 0 && (op `List.elem` [Div, Rem]) then
       Exception.throwZeroDivision
     else
       return $ HEVal $ HVInt $ toArithm op a b
-  | op == Eqls                          =
-    return $ HEVal $ HVBool $ v1 == v2
-  | op `List.elem` [Gr, Le, Greq, Leq]  = do
-    let (HVInt a) = v1
-        (HVInt b) = v2
+  | op == Eqls                               = HEVal . HVBool <$> eqls v1 v2
+  | op `List.elem` [Gr, Le, Greq, Leq]       = do
+    let (HEVal (HVInt a)) = v1
+        (HEVal (HVInt b)) = v2
     return $ HEVal $ HVBool $ toOrd op a b
-reduceOp _ _ _                          = trace "reduce op" unreachable
+reduceOp _ _ _                               = trace "reduce op" unreachable
 
 reduce :: HExpr -> Runtime HExpr
 reduce = \case
@@ -196,8 +244,7 @@ reduce = \case
 --    traceM $ "reducing binop:\n" ++ show (HEBinOp e1 op e2)
     e1' <- reduce2whnf e1
     e2' <- reduce2whnf e2
-    let (HEVal v1, HEVal v2) = (e1', e2')
-    reduceOp op v1 v2
+    reduceOp op e1' e2'
   HEIf cond e1 e2     -> do
 --    traceM $ "reducing if:\n" ++ show (HEIf cond e1 e2)
     c <- reduce2whnf cond
@@ -230,6 +277,11 @@ reduce2show (HETypeCons (HCList (HLCons h t))) = do
   tsh <- reduce2show t
   let (HSList tsh') = tsh
   return $ HSList $ hsh : tsh'
+reduce2show (HETypeCons (HCTuple _ es))        = HSTuple <$> mapM reduce2show es
+reduce2show (HETypeCons (HCMaybe m))           = do
+  case m of
+    Nothing -> return $ HSMaybe Nothing
+    Just e  -> HSMaybe . Just <$> reduce2show e
 reduce2show e                                  = reduce2whnf e >>= reduce2show--trace ("reduce2val:\n" ++ show e) unreachable
 
 interpret :: HProgram -> IO ()

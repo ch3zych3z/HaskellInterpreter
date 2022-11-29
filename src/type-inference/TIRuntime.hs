@@ -27,18 +27,9 @@ mgu (HTList t1) (HTList t2)                      = mgu t1 t2
 mgu (HTTuple l1 ts1) (HTTuple l2 ts2) | l1 == l2 = do
   ss <- zipWithM mgu ts1 ts2
   return $ foldl1 Subst.compose ss
+mgu (HTMaybe t1) (HTMaybe t2)                    = mgu t1 t2
 mgu t1 t2 | t1 == t2                             = return Subst.empty
           | otherwise                            = throwError $ "types do not unify: " ++ show t1 ++ " vs. " ++ show t2
-
---match :: MonadError String m => HType -> HType -> m Subst.Subst
---match (HTFun l r) (HTFun l' r') = do
---  sl <- match l l'
---  sr <- match r r'
---  Subst.merge sl sr
---match (HTVar n) t               = varBind n t
---match t1 t2 | t1 == t2          = return Subst.empty
---            | otherwise         = throwError $ "types do not match: " ++ show t1 ++ " vs. " ++ show t2
-
 
 data TIRuntime = TIRuntime {
   supply  :: Int
@@ -65,8 +56,8 @@ unify t1 t2 = do
   u <- mgu (Subst.apply s t1) (Subst.apply s t2)
   extSubst u
 
-unifyPairwise :: [HType] -> TI ()
-unifyPairwise ts = forM_ (zip ts $ tail ts) $ uncurry unify 
+unifyAll :: [HType] -> TI ()
+unifyAll ts = forM_ ts $ \t1 -> forM_ ts $ \t2 -> unify t1 t2
 
 newHTVar :: TI HType
 newHTVar = do
