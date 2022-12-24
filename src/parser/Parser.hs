@@ -64,8 +64,8 @@ operand =
   <|> try list 
 
 table = [ [ binIntOp "*" Mul,
-            binIntOp "/" Div,
-            binIntOp "%" Rem]
+            binIntOp "`div`" Div,
+            binIntOp "`mod`" Rem]
         , [ binIntOp "+" Add,
             binIntOp "-" Sub]
         , [ consOp ]
