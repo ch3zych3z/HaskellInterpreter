@@ -68,7 +68,6 @@ data HExpr =
   | HEApp HExpr HExpr
   | HEAbs HPattern HExpr
   | HELet Bindings
-  | HELetSimple HId HExpr HExpr
   | HEBinOp HExpr HBinOp HExpr
   | HEIf HExpr HExpr HExpr
   | HECase HExpr [Matching]

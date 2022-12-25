@@ -25,6 +25,5 @@ main = do
           case infereType prog' of
             Left err -> printError "Type inference error:" err
             Right _  -> do
-              -- print prog
               interpret prog'
     [] -> print "Expected filename in args"

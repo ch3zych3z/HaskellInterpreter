@@ -35,6 +35,9 @@ addAll ss schs = (++) $ zipWith (:>:) ss schs
 addEmpty :: String -> HType -> Context -> Context
 addEmpty i t = add i $ Scheme.empty t
 
+addAllEmpty :: [String] -> [HType] -> Context -> Context
+addAllEmpty ids ts = addAll ids (map Scheme.empty ts)
+
 update :: String -> Scheme.Scheme -> Context -> Context
 update i sch ctx = add i sch $ remove i ctx
 

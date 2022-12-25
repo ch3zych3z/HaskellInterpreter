@@ -54,9 +54,6 @@ tiPat (HPMaybe p)    = do
     Nothing -> return (Context.empty, HTMaybe t)
     Just p' -> do
       (ctx, t') <- tiPat p'
---      traceM $ "pat: " ++ show p'
---      traceM $ "type: " ++ show t'
---      traceM $ "return: " ++ show (ctx, HTMaybe t')
       return (ctx, HTMaybe t')
 
 tiPats :: [HPattern] -> TI ([Context.Context], [HType])
@@ -117,16 +114,15 @@ tiExpr ctx (HEIf cond e1 e2)     = do
   unify t1 t2
   return t1
 tiExpr ctx (HELet binds)         = tiBinds ctx binds
-tiExpr ctx (HELetSimple f e1 e2) = do
-  tf <- newHTVar
-  let ctx' = Context.updateEmpty f tf ctx
-  t1 <- tiExpr ctx' e1
-  unify tf t1
-  let ctx'' = Context.remove f ctx'
-  s <- getSubst
-  let sch2 = generalize ctx'' $ Subst.apply s tf
-  let ctx''' = Context.add f sch2 ctx''
-  tiExpr ctx''' e2
+--tiExpr ctx (HELetSimple f e1 e2) = do
+--  tf <- newHTVar
+--  let ctx' = Context.updateEmpty f tf ctx
+--  t1 <- tiExpr ctx' e1
+--  unify tf t1
+--  s <- getSubst
+--  let sch2 = generalize ctx $ Subst.apply s tf
+--  let ctx'' = Context.add f sch2 ctx
+--  tiExpr ctx'' e2
 tiExpr ctx (HECase e ms)         = do
   t <- tiExpr ctx e
   (pts, rts) <- tiMatching ctx ms
@@ -139,16 +135,21 @@ tiMatching :: Infer [Matching] ([HType], [HType])
 tiMatching ctx ms = do
   let (ps, exs) = unzip $ map (\(p :->: e) -> (p, e)) ms
   (ctxs, pts) <- tiPats ps
---  unifyPairwise pts
   rts <- zipWithM (\ctx' e -> tiExpr (Context.concat ctx' ctx) e) ctxs exs
---  unifyPairwise rts
   return (pts, rts)
 
 tiBinds :: Infer Bindings HType
 tiBinds ctx (Binds bs expr) = do
-  let foldBinds []                  exp = exp
-      foldBinds ((Bind n e) : bnds) exp = HELetSimple n e $ foldBinds bnds exp 
-  tiExpr ctx $ foldBinds bs expr
+  let idsExprs     = unzip . map (\(Bind i e) -> (i, e))
+      (ids, exprs) = idsExprs bs
+  tvars <- mapM (const newHTVar) ids
+  let ctxWithEmpty = Context.addAllEmpty ids tvars ctx
+  ts     <- mapM (tiExpr ctxWithEmpty) exprs
+  s      <- getSubst
+  substs <- zipWithM (\t1 t2 -> mgu (Subst.apply s t1) (Subst.apply s t2)) tvars ts
+  let schs     = map (generalize ctx) $ zipWith Subst.apply (map (`Subst.compose` s) substs) tvars
+      finalCtx = Context.addAll ids schs ctx
+  tiExpr finalCtx expr
 
 typeInferenceExpr :: Context.Context -> HExpr -> TI HType 
 typeInferenceExpr ctx e = do 

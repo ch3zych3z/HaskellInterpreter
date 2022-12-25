@@ -33,7 +33,6 @@ exprTests =
   , ("let { fix f = f (fix f) } in fix",                                        "(a4 -> a4) -> a4")
   , ("let { fix f = f (fix f) } in fix (\\self x -> x * self (x - 1))",         "Int -> Int")
   , ("let { s f g x = f x (g x) } in s",                                        "(a7 -> a8 -> a9) -> (a7 -> a8) -> a7 -> a9")
-  , ("let { id x = x; f x = id (x + 1); g x = id (x == True) } in id",          "a13 -> a13")
   , ("\\x -> case x of { True -> False; False -> True }",                       "Bool -> Bool")
   , ("\\f x -> case f of { 0 -> f x; _ -> x }",                                 "types do not unify: a1 -> a3 vs. Int")
   , ("\\x -> case x of { 42 -> True; _ -> 1 }",                                 "types do not unify: Bool vs. Int")

@@ -1,26 +1,9 @@
 {-# OPTIONS_GHC -Wno-missing-signatures #-}
 module Lexer (module Lexer) where
 
-
 import Text.Parsec.Language (haskell)
 
 import qualified Text.Parsec.Token as Tok
-
--- haskell :: Tok.TokenParser ()
--- haskell = Tok.makeTokenParser style
---   where
---     ops = [ "+", "*", "-", "/"
---           , "<", ">", ">=", "<="
---           , "==" ]
---     names = ["True", "False", "Int", "Bool", "->", "\\", "let", "in", "="]
---     style = emptyDef {
---                Tok.commentLine = "--"
---              , Tok.commentStart = "{-"
---              , Tok.commentEnd = "-}"
---              , Tok.caseSensitive = True
---              , Tok.reservedOpNames = ops
---              , Tok.reservedNames = names
---              }
 
 integer    = Tok.natural haskell
 parens     = Tok.parens haskell

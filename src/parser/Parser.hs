@@ -269,8 +269,8 @@ prelude :: Parser [Binding]
 prelude = semiSep $ try binding
 
 parsePrelude :: String -> HProgram -> HProgram
-parsePrelude s (Binds bs e) = case parse prelude "" s of
-  ~(Right bs') -> Binds (bs' ++ bs) e
+parsePrelude s binds = case parse prelude "" s of
+  ~(Right bs') -> Binds bs' $ HELet binds
 
 parseExpr :: String -> Either ParseError HExpr
 parseExpr = parse expr ""

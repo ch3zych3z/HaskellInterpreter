@@ -1,6 +1,9 @@
 fst (a, _) = a;
 snd (_, b) = b;
 
+min a b = if a < b then a else b;
+max a b = if a > b then a else b;
+
 curry f a b = f (a, b);
 uncurry f (a, b) = f a b;
 
@@ -43,8 +46,6 @@ zipWith f l1 l2 = case (l1, l2) of
   ; (_, []) -> []
   ; ((x1:xs1), (x2:xs2)) -> f x1 x2 : zipWith f xs1 xs2
   };
-
-zip = zipWith (\x y -> (x, y));
 
 repeat x = x : repeat x;
 

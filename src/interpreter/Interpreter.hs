@@ -98,7 +98,6 @@ subst l@(HELet (Binds bs e1)) i e2 | bindsContains bs i = l
                                    | otherwise          = HELet $ Binds (substBinds bs i e2) $ subst e1 i e2
 subst (HEBinOp e1 op e2)      i e                       = HEBinOp (subst e1 i e) op (subst e2 i e)
 subst (HEIf e1 e2 e3)         i e                       = HEIf (subst e1 i e) (subst e2 i e) (subst e3 i e)
-subst HELetSimple {}          _ _                       = unreachable
 subst (HECase to ms)          i e                       = 
   let
     e' = subst to i e
@@ -141,7 +140,6 @@ setScopes _       (HETypeCons (HCList HLNil))          = nilExpr
 setScopes sc      (HETypeCons (HCList (HLCons e1 e2))) = consExpr (setScopes sc e1) (setScopes sc e2)
 setScopes _     m@(HETypeCons (HCMaybe Nothing))       = m
 setScopes sc      (HETypeCons (HCMaybe (Just e)))      = HETypeCons $ HCMaybe $ Just $ setScopes sc e
-setScopes _       _                                    = unreachable
 
 apply :: HExpr -> HExpr -> Runtime HExpr
 apply (HEAbs p to) e = do
@@ -220,33 +218,23 @@ reduceOp _ _ _                               = trace "reduce op" unreachable
 reduce :: HExpr -> Runtime HExpr
 reduce = \case
   HEApp e1 e2         -> do
---    traceM $ "reducing application:\n" ++ show (HEApp e1 e2)
     e1' <- reduce2whnf e1
     apply e1' e2
   val@(HEVal _)       -> traceM ("reducing val:\n" ++ show val) >> return val
   v@(HEVar sc i)      -> do
---    traceM ("reducing var:\n" ++ show v)
     pushScope sc
     e <- setScopes sc . fromMaybe v <$> getVar i
---     kek <- fromMaybe v <$> getVar i
-    -- traceM $ "unscoped var:\n" ++ show kek
-    -- traceM $ "scoped var:\n" ++ show e
     popScope
     return e
   a@(HEAbs _ _)       -> traceM ("reducing abstraction:\n" ++ show a) >> return a
   HELet (Binds bs e)  -> do
---    traceM $ "reducing let:\n" ++ show (Binds bs e)
     let sc = binds2Scope bs
-    -- traceM $ "bindings to be closured:\n" ++ show bs
-    -- traceM $ "closured by\n" ++ show sc
     return $ setScopes sc e
   HEBinOp e1 op e2    -> do
---    traceM $ "reducing binop:\n" ++ show (HEBinOp e1 op e2)
     e1' <- reduce2whnf e1
     e2' <- reduce2whnf e2
     reduceOp op e1' e2'
   HEIf cond e1 e2     -> do
---    traceM $ "reducing if:\n" ++ show (HEIf cond e1 e2)
     c <- reduce2whnf cond
     case c of
       (HEVal(HVBool cond')) ->
@@ -255,7 +243,6 @@ reduce = \case
         else
           return e2
       _                      -> trace "if" unreachable
-  HELetSimple {}      -> unreachable
   HECase e ms         -> do
     res <- forM ms $ \(p :->: expr) -> do
       scope <- match p e
@@ -282,7 +269,7 @@ reduce2show (HETypeCons (HCMaybe m))           = do
   case m of
     Nothing -> return $ HSMaybe Nothing
     Just e  -> HSMaybe . Just <$> reduce2show e
-reduce2show e                                  = reduce2whnf e >>= reduce2show--trace ("reduce2val:\n" ++ show e) unreachable
+reduce2show e                                  = reduce2whnf e >>= reduce2show
 
 interpret :: HProgram -> IO ()
 interpret (Binds bs ex) = do

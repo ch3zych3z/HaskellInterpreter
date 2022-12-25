@@ -3,8 +3,6 @@ module Subst (module Subst) where
 
 import qualified Data.Map as Map
 import qualified Data.List as List
-import Control.Monad.Except
-import Data.Function (on)
 
 import Ast
 
@@ -40,9 +38,3 @@ empty = Map.empty
 
 compose :: Subst -> Subst -> Subst
 compose s1 s2 = Map.map (apply s1) s2 `Map.union` s1
-
-merge :: MonadError String m => Subst -> Subst -> m Subst
-merge s1 s2 = if agree then return $ Map.union s1 s2 else throwError "Substitutions cannot be merged"
-  where agree = all (\v -> apply s1 (HTVar v) == apply s2 (HTVar v)) $ intersect s1 s2
-        intersect = List.intersect `on` Map.keys
-
