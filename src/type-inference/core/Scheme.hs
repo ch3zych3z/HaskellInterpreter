@@ -1,4 +1,4 @@
-module Scheme where
+module Scheme (module Scheme) where
 
 import qualified Data.Map as Map
 import qualified Data.List as List
@@ -6,7 +6,7 @@ import qualified Data.List as List
 import qualified Subst
 import Ast
 
-data Scheme = Forall [String] HType deriving (Show)
+data Scheme = Forall [String] HType deriving (Eq, Show)
 
 instance Subst.Types Scheme where
   ftv (Forall ns t) = Subst.ftv t List.\\ ns

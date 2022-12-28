@@ -1,20 +1,19 @@
-module Parser (parseExpr, parseProgram) where
+{-# OPTIONS_GHC -Wno-missing-signatures #-}
+module Parser (parseExpr, parseProgram, parsePrelude) where
 
-import Data.Maybe
+import Prelude hiding (maybe)
 import Text.Parsec
-import Text.Parsec.Char
 import Text.Parsec.String (Parser)
-import Control.Applicative ((<$>))
-import Data.Functor (void)
 import Control.Monad.Except
 import Data.List (sort)
 import qualified Data.Map as Map (empty)
+import Data.Functor ( ($>) )
 
 import qualified Text.Parsec.Expr as Ex
-import qualified Text.Parsec.Token as Tok
 
 import Ast
 import Lexer
+import Pattern (collectIdents)
 
 allDifferent :: Ord a => [a] -> Bool
 allDifferent = pairwiseDifferent . sort
@@ -22,57 +21,107 @@ allDifferent = pairwiseDifferent . sort
 pairwiseDifferent :: Eq a => [a] -> Bool
 pairwiseDifferent xs = and $ zipWith (/=) xs (drop 1 xs)
 
-unfoldAbs :: [HId] -> HExpr -> HExpr
+unfoldAbs :: [HPattern] -> HExpr -> HExpr
 unfoldAbs [i]      e = HEAbs i e
 unfoldAbs (i : is) e = HEAbs i $ unfoldAbs is e
+unfoldAbs []       _ = error "unfolding empty list"
 
-unique :: [HId] -> Parser [HId]
-unique idents = do
+unique :: [HPattern] -> Parser ()
+unique pats = do
+  let idents = collectIdents pats
   unless (allDifferent idents) $ fail "conflicting definitions"
-  return idents
 
 program :: Parser HProgram
 program = do
   void spaces
   bs <- semiSep $ try binding
-  let (mn : bsr) = reverse bs
-  case mn of
-    Bind "main" (HEApp (HEVar _ "print") e) -> return $ Binds (reverse bsr) e
-    _                                     -> fail "main function is not detected or it is not last defined function"
+  case reverse bs of
+    (mn : bsr) ->
+      case mn of
+        Bind "main" (HEApp (HEVar _ "print") e) -> return $ Binds (reverse bsr) e
+        _                                     -> fail "main function is not detected or it is not last defined function"
+    _          -> fail "at least one function (main) should be defined"
 
 expr :: Parser HExpr
 expr = Ex.buildExpressionParser table term
 
 term :: Parser HExpr
 term = try letIn
-   <|> try application 
-   <|> try abstraction 
-   <|> try ifelse 
+   <|> try just
+   <|> try caseOf
+   <|> try application
+   <|> try abstraction
+   <|> try ifelse
    <|> operand
 
 operand :: Parser HExpr
-operand = parens (try expr) <|> try value <|> try var
+operand = 
+      try (parens (try tuple))
+  <|> try nothing
+  <|> try (parens (try expr))
+  <|> try value 
+  <|> try var 
+  <|> try list 
 
-table = [ {-[ unIntOp "-" UnMinus,
-            unBoolOp "!" Not]
-        ,-} [ binIntOp "*" Mul,
-            binIntOp "/" Div]
+table = [ [ binIntOp "*" Mul,
+            binIntOp "`div`" Div,
+            binIntOp "`mod`" Rem]
         , [ binIntOp "+" Add,
             binIntOp "-" Sub]
+        , [ consOp ]
         , [ compOp "==" Eqls,
             compOp ">" Gr,
             compOp "<" Le,
             compOp ">=" Greq,
             compOp "<=" Leq
-            --compOp "!=" Neq
             ]
         ]
 
 binary name fun = Ex.Infix ( do { reservedOp name; return fun } )
 
-binIntOp s op = binary s (`HEBinOp` op) Ex.AssocLeft
+binaryAssoc as s op = binary s (`HEBinOp` op) as
 
-compOp s op = binary s (`HEBinOp` op) Ex.AssocNone
+binIntOp = binaryAssoc Ex.AssocLeft
+
+compOp = binaryAssoc Ex.AssocNone
+
+consOp = binary ":" consExpr Ex.AssocRight
+
+nothing :: Parser HExpr
+nothing = do
+  reserved "Nothing"
+  return $ HETypeCons $ HCMaybe Nothing
+
+just :: Parser HExpr
+just = do
+  reserved "Just"
+  e <- operand
+  return $ HETypeCons $ HCMaybe $ Just e
+
+tuple :: Parser HExpr
+tuple = let
+  tupleEl = expr <* reservedOp ","
+  in (\ps p -> HETypeCons $ HCTuple (length ps + 1) (ps ++ [p])) <$> (many1 $ try tupleEl) <*> try expr
+
+list :: Parser HExpr
+list = do
+  es <- brackets $ commaSep expr
+  return $ foldr consExpr nilExpr es
+
+caseOf :: Parser HExpr
+caseOf = do
+  reserved "case"
+  e <- expr
+  reserved "of"
+  ms <- braces $ semiSep matching
+  return $ HECase e ms
+
+matching :: Parser Matching
+matching = do
+  p <- pattern
+  reservedOp "->"
+  e <- expr
+  return $ p :->: e
 
 letIn :: Parser HExpr
 letIn = do
@@ -87,13 +136,13 @@ bindingList = braces $ semiSep binding
 binding :: Parser Binding
 binding = do
   i <- identifier
-  args <- many identifier >>= unique
+  args <- many $ try operandPat
+  unique (HPIdent i : args)
   reservedOp "="
   e <- expr
   return $ case args of
     [] -> Bind i e
     _  -> Bind i $ unfoldAbs args e
-
 
 ifelse :: Parser HExpr
 ifelse = do
@@ -107,15 +156,95 @@ ifelse = do
 abstraction :: Parser HExpr
 abstraction = do
   reservedOp "\\"
-  idents <- many1 identifier >>= unique
+  pats <- many1 $ try operandPat
+  unique pats
   reservedOp "->"
-  unfoldAbs idents <$> expr
+  unfoldAbs pats <$> expr
 
 application :: Parser HExpr
-application = do
-  i          <- var
-  app : apps <- sepBy1 operand spaces
-  return $ foldl HEApp (HEApp i app) apps
+application = let
+  app = spaces $> HEApp
+  in chainl1 operand app
+
+-- patterns
+pattern :: Parser HPattern
+pattern =
+      try justPat
+  <|> try operandPat
+
+operandPat :: Parser HPattern
+operandPat =
+      try listPat
+  <|> try nothingPat
+  <|> try labelPat
+  <|> try valuePat
+  <|> try identPat
+  <|> try wildcardPat
+  <|> try (parens tuplePat)
+  <|> try (parens pattern)
+
+nothingPat :: Parser HPattern
+nothingPat = do
+  reserved "Nothing"
+  return $ HPMaybe Nothing
+
+justPat :: Parser HPattern
+justPat = do
+  reserved "Just"
+  p <- operandPat
+  return $ HPMaybe $ Just p
+    
+
+tuplePat :: Parser HPattern
+tuplePat = let 
+  tupleEl = pattern <* reservedOp "," 
+  in (\ps p -> HPTuple (length ps + 1) (ps ++ [p])) <$> (many1 $ try tupleEl) <*> try pattern
+
+listPat :: Parser HPattern
+listPat = do
+  let
+    listVal  = do
+      ps <- brackets $ commaSep pattern
+      return $ unfoldCons (HPList HLPNil) ps
+
+    unfoldCons :: HPattern -> [HPattern] -> HPattern
+    unfoldCons = foldr (\h t -> HPList $ HLPCons h t)
+
+    listCons = do
+      ps <- parens $ sepBy1 pattern (reservedOp ":")
+      let (ini, lt) = (init ps, last ps)
+      return $ unfoldCons lt ini
+  try listVal <|> try listCons
+
+wildcardPat :: Parser HPattern
+wildcardPat = reserved "_" $> HPWildcard
+
+labelPat :: Parser HPattern
+labelPat = do
+  let
+    lbl = do
+      i <- identifier
+      reservedOp "@"
+      return i
+  ls <- many1 $ try lbl
+  HPLabel ls <$> operandPat
+
+identPat :: Parser HPattern
+identPat = HPIdent <$> identifier
+
+valuePat :: Parser HPattern
+valuePat = let
+  vpint :: Parser HValuePat
+  vpint = toVPInt <$> integer
+    where
+      toVPInt x = HVPInt $ fromInteger x
+  vpbool :: Parser HValuePat
+  vpbool = (toVP True <$> try (reserved "True")) <|> (toVP False <$> try (reserved "False"))
+    where
+      toVP v = const $ HVPBool v
+  in HPVal <$> (vpint <|> vpbool)
+
+-- values and vars
 
 value :: Parser HExpr
 value = HEVal <$> (vint <|> vbool)
@@ -133,6 +262,15 @@ vbool = (toVTrue <$> try (reserved "True")) <|> (toVFalse <$> try (reserved "Fal
 
 var :: Parser HExpr
 var = HEVar Map.empty <$> identifier
+
+-- main functions
+
+prelude :: Parser [Binding]
+prelude = semiSep $ try binding
+
+parsePrelude :: String -> HProgram -> HProgram
+parsePrelude s binds = case parse prelude "" s of
+  ~(Right bs') -> Binds bs' $ HELet binds
 
 parseExpr :: String -> Either ParseError HExpr
 parseExpr = parse expr ""

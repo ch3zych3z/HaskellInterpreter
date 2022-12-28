@@ -9,4 +9,4 @@ tests :: TestTree
 tests = testGroup "Tests" [unitTests]
 
 unitTests :: TestTree
-unitTests = testGroup "Unit Tests" [typeInference]
+unitTests = testGroup "Integration" [typeInference]

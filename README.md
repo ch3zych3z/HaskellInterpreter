@@ -11,6 +11,10 @@ Features done:
 - "If then else" expressions
 - Type inference
 - "Let in" expressions
+- Pattern matching
+- "Case of" expressions
+- Types: Int, Bool, List, Tuple, Maybe
+- Mutual recursion
 
 ### Getting started
 
@@ -22,7 +26,5 @@ Features done:
 **NB**
 
 The main function should look like "main = print expr"
-
-Mutual recursion is not allowed in either top-level definitions and let-bindings
 
 You may want to see [demos/](demos/) to explore miniLanguage syntax

@@ -1,4 +1,4 @@
-module Exception where
+module Exception (module Exception) where
 
 import Control.Monad.Except
 
@@ -9,3 +9,6 @@ throwException s = throwError $ "exception: " ++ s
 
 throwZeroDivision :: Runtime a
 throwZeroDivision = throwException "division by zero!"
+
+incompletePM :: Runtime a
+incompletePM = throwException "incomplete pattern matching"

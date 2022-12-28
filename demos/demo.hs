@@ -6,4 +6,4 @@ g = let {
     x = 10
 } in x + f x;
 
-main = print g
+main = print (g + 18)
