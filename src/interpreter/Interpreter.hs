@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 {-# LANGUAGE TupleSections #-}
+
 module Interpreter (interpret) where
 
 import qualified Data.Map as Map
@@ -220,13 +221,13 @@ reduce = \case
   HEApp e1 e2         -> do
     e1' <- reduce2whnf e1
     apply e1' e2
-  val@(HEVal _)       -> traceM ("reducing val:\n" ++ show val) >> return val
+  val@(HEVal _)       -> return val
   v@(HEVar sc i)      -> do
     pushScope sc
     e <- setScopes sc . fromMaybe v <$> getVar i
     popScope
     return e
-  a@(HEAbs _ _)       -> traceM ("reducing abstraction:\n" ++ show a) >> return a
+  a@(HEAbs _ _)       -> return a
   HELet (Binds bs e)  -> do
     let sc = binds2Scope bs
     return $ setScopes sc e

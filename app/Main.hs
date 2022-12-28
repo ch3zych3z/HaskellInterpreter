@@ -3,6 +3,7 @@ module Main ( main ) where
 import Parser
 import TypeInference
 import Interpreter
+import Ast
 
 import System.Environment ( getArgs )
 
@@ -23,7 +24,7 @@ main = do
         Right prog -> do
           let prog' = parsePrelude prelude prog
           case inferType prog' of
-            Left err -> printError "Type inference error:" err
-            Right _  -> do
-              interpret prog'
+            Left err          -> printError "Type inference error:" err
+            Right (HTFun _ _) -> printError "Type inference error:" "no Show instance for functional type"
+            Right _           -> interpret prog'
     [] -> print "Expected filename in args"
