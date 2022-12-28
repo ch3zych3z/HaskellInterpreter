@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-overlapping-patterns #-}
-module TypeInference (infereType, infereTypeExpr) where
+module TypeInference (inferType, inferTypeExpr) where
 
 import Control.Monad.Except
 import Prelude hiding (exp)
@@ -114,15 +114,6 @@ tiExpr ctx (HEIf cond e1 e2)     = do
   unify t1 t2
   return t1
 tiExpr ctx (HELet binds)         = tiBinds ctx binds
---tiExpr ctx (HELetSimple f e1 e2) = do
---  tf <- newHTVar
---  let ctx' = Context.updateEmpty f tf ctx
---  t1 <- tiExpr ctx' e1
---  unify tf t1
---  s <- getSubst
---  let sch2 = generalize ctx $ Subst.apply s tf
---  let ctx'' = Context.add f sch2 ctx
---  tiExpr ctx'' e2
 tiExpr ctx (HECase e ms)         = do
   t <- tiExpr ctx e
   (pts, rts) <- tiMatching ctx ms
@@ -157,8 +148,8 @@ typeInferenceExpr ctx e = do
   s <- getSubst
   return $ Subst.apply s t
 
-infereTypeExpr :: HExpr -> Either String HType
-infereTypeExpr e = runTI $ typeInferenceExpr [] e
+inferTypeExpr :: HExpr -> Either String HType
+inferTypeExpr e = runTI $ typeInferenceExpr [] e
 
 typeInferenceBinds :: Context.Context -> Bindings -> TI HType
 typeInferenceBinds ctx bs = do
@@ -166,5 +157,5 @@ typeInferenceBinds ctx bs = do
   s <- getSubst
   return $ Subst.apply s ass
 
-infereType :: HProgram -> Either String HType
-infereType bs = runTI $ typeInferenceBinds [] bs
+inferType :: HProgram -> Either String HType
+inferType bs = runTI $ typeInferenceBinds [] bs

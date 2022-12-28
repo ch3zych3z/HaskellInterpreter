@@ -22,7 +22,7 @@ main = do
         Left err   -> printError "Parse error:" $ show err
         Right prog -> do
           let prog' = parsePrelude prelude prog
-          case infereType prog' of
+          case inferType prog' of
             Left err -> printError "Type inference error:" err
             Right _  -> do
               interpret prog'

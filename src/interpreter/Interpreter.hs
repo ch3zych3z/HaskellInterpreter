@@ -147,7 +147,7 @@ apply (HEAbs p to) e = do
   case matched of
     Just sc -> return $ Map.foldlWithKey subst to sc
     Nothing -> Exception.incompletePM
-apply _ _            = trace "apply" unreachable
+apply _ _            = trace "apply" unreachable -- because of type checker
 
 toArithm :: HBinOp -> Int -> Int -> Int
 toArithm = \case
@@ -213,7 +213,7 @@ reduceOp op v1 v2
     let (HEVal (HVInt a)) = v1
         (HEVal (HVInt b)) = v2
     return $ HEVal $ HVBool $ toOrd op a b
-reduceOp _ _ _                               = trace "reduce op" unreachable
+reduceOp _ _ _                               = trace "reduce op" unreachable -- because of no other operation available
 
 reduce :: HExpr -> Runtime HExpr
 reduce = \case
@@ -242,7 +242,7 @@ reduce = \case
           return e1
         else
           return e2
-      _                      -> trace "if" unreachable
+      _                      -> trace "if" unreachable -- because of type checking
   HECase e ms         -> do
     res <- forM ms $ \(p :->: expr) -> do
       scope <- match p e
